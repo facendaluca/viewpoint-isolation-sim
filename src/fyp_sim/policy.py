@@ -5,9 +5,7 @@ from fyp_sim.models import User, UserAction, UserPhenotype, Video
 
 def decide_action(user: User, video: Video) -> UserAction:
     """Decide user action based on phenotype, viewpoint, and sentiment."""
-    topic_interest = user.interest_vector.get(video.topic_category, 0.0)
-    tag_interest = max((user.interest_vector.get(t, 0.0) for t in video.tags), default=0.0)
-    interest = max(topic_interest, tag_interest)
+    interest = interest_score(user, video)
 
     # Sentiment gating: if content is "too negative", bias away from it
     if video.sentiment_score < user.sentiment_threshold:
@@ -24,3 +22,10 @@ def decide_action(user: User, video: Video) -> UserAction:
         return UserAction.AVOID
     # AVOIDER
     return UserAction.SAMPLE if interest >= 0.8 else UserAction.AVOID
+
+
+def interest_score(user: User, video: Video) -> float:
+    """Interest keyed by both topic_category and free-form tags (0.0-1.0)"""
+    topic_interest = user.interest_vector.get(video.topic_category, 0.0)
+    tag_interest = max((user.interest_vector.get(tag, 0.0) for tag in video.tags), default=0.0)
+    return max(topic_interest, tag_interest)
