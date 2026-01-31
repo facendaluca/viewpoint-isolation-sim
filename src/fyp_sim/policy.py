@@ -1,10 +1,19 @@
+"""
+Policy layer: maps (user, video) -> UserAction.
+
+This encodes behavioural assumptions used by the simulation:
+    - Interest is a scalar in [0, 1], derived from either topic_category or any free-form tag.
+    - Sentiment gating applies first: if a video's sentiment is below the user's threshold, the user avoids it regardless of interest (simple harm-avoidance model).
+    - Phenotypes (watcher/sampler/avoider) differ only in thresholds, not in the interest model.
+"""
+
 from __future__ import annotations
 
 from fyp_sim.models import User, UserAction, UserPhenotype, Video
 
 
 def decide_action(user: User, video: Video) -> UserAction:
-    """Decide user action based on phenotype, viewpoint, and sentiment."""
+    """Decide action based on phenotype, interest, and sentiment gating."""
     interest = interest_score(user, video)
 
     # Sentiment gating: if content is "too negative", bias away from it

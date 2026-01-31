@@ -1,7 +1,21 @@
+"""
+Simulation engine.
+
+This module runs a minimal, reproducible simulation loop for a single user.
+At each timestep t:
+    1) choose a video from a pool (baseline or Top-K weighted chooser),
+    2) decide an action (policy),
+    3) convert action -> watch time (implicit feedback proxy),
+    4) compute viewpoint distance (VII_t) and its running mean (VII_cum),
+    5) log everything for later analysis/reporting.
+
+Design goal: keep the engine small and deterministic (given rng seed) so experiments are reproducible.
+"""
+
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from fyp_sim.engagement import watch_time_seconds
 from fyp_sim.metrics import running_mean, viewpoint_distance
@@ -10,7 +24,11 @@ from fyp_sim.policy import decide_action, interest_score
 
 
 def engagement_proxy(action) -> float:
-    """Simple proxy fraction used for ranking (not the actual watch time)"""
+    """Heuristic engagement fraction used for ranking (not the actual watch time).
+
+    Purpose: incorporate a coarse notion of "likely engagement" into candidate ranking
+    while keeping the actual watch time simulation separate in 'watch_time_seconds'.
+    """
     if action.value.lower() == "avoid":
         return 0.0
     if action.value.lower() == "sample":
@@ -19,11 +37,15 @@ def engagement_proxy(action) -> float:
 
 
 def video_score(user: User, v: Video, *, alpha: float) -> float:
-    """Score used for candidate ranking: interest + alpha * engagement_proxy"""
+    """Candidate ranking score = interest score + alpha * engagement proxy.
+
+    alpha controls how strongly engagement heuristics influence ranking (0 = interest only).
+    """
     a = decide_action(user, v)
     return interest_score(user, v) + alpha * engagement_proxy(a)
 
 
+# Step-level log row written out by scripts (e.g., CSV) for analysis and reporting.
 @dataclass(slots=True)
 class StepLog:
     t: int
@@ -36,7 +58,10 @@ class StepLog:
 
 
 def choose_video_max_interest(user: User, pool: list[Video]) -> Video:
-    """Deterministic baseline: always choose the most 'interesting' video."""
+    """Deterministic baseline: always choose the most 'interesting' video.
+
+    Useful as a sanity check/baseline policy (no exploration).
+    """
     return max(pool, key=lambda v: interest_score(user, v))
 
 
@@ -48,9 +73,10 @@ def choose_video_weighted_top_k(
     top_k: int = 3,
     alpha: float = 0.3,
 ) -> Video:
-    """
-        Rank videos by score, take top_k, then choose using weighted randomness
-    Deterministic given rng seed.
+    """Rank videos by score, take top_k, then choose using weighted randomness.
+
+    - Deterministic given rng seed.
+    - Stable tie-breaking (score desc, video_id asc) avoids accidental nondeterminism.
     """
     if top_k <= 0:
         raise ValueError("top_k must be > 0")
@@ -70,13 +96,27 @@ def choose_video_weighted_top_k(
     return rng.choices(candidates, weights=weights, k=1)[0]
 
 
+class ChooserFn(Protocol):
+    def __call__(
+        self,
+        user: User,
+        pool: list[Video],
+        rng,
+        *,
+        top_k: int,
+        alpha: float,
+    ) -> Video: ...
+
+
 def run_simulation(
     *,
     user: User,
     video_pool: list[Video],
     steps: int,
     rng,
-    chooser: Callable[[User, list[Video]], Video] = choose_video_weighted_top_k,
+    top_k: int = 3,
+    alpha: float = 0.3,
+    chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
@@ -84,16 +124,22 @@ def run_simulation(
         raise ValueError("steps must be > 0")
     if not video_pool:
         raise ValueError("video_pool must not be empty")
+    if top_k <= 0:
+        raise ValueError("top_k must be > 0")
+    if alpha < 0.0 or alpha > 1.0:
+        raise ValueError("alpha must be between 0.0 and 1.0")
 
     logs: list[StepLog] = []
     vii_cum = 0.0
 
     for t in range(steps):
-        v = chooser(user, video_pool, rng)
+        # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
+        v = chooser(user, video_pool, rng, top_k=top_k, alpha=alpha)
         action = decide_action(user, v)
         wt = watch_time_fn(user, v, rng)
 
         vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
+        # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
         vii_cum = running_mean(vii_cum, t, vii_t)
 
         logs.append(

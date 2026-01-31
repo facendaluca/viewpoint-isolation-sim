@@ -1,0 +1,65 @@
+{
+    "steps": 200,
+    "top_k": 2,
+    "alpha": 0.3,
+    "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "user": {
+        "phenotype": "sampler",
+        "viewpoint_score": 0.4,
+        "sentiment_threshold": -0.2,
+        "interest_vector": {
+            "politics": 0.2,
+            "meme": 0.9,
+            "sports": 0.1,
+            "sleep": 0.3
+        }
+    },
+    "video_pool": [
+        {
+            "video_id": 1,
+            "topic_category": "politics",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme"
+            ]
+        },
+        {
+            "video_id": 4,
+            "topic_category": "politics",
+            "viewpoint_score": -0.6,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme"
+            ]
+        },
+        {
+            "video_id": 2,
+            "topic_category": "sports",
+            "viewpoint_score": 0.2,
+            "sentiment_score": 0.1,
+            "duration_s": 20,
+            "tags": [
+                "football"
+            ]
+        },
+        {
+            "video_id": 3,
+            "topic_category": "health_wellness",
+            "viewpoint_score": 0.5,
+            "sentiment_score": 0.2,
+            "duration_s": 30,
+            "tags": [
+                "sleep"
+            ]
+        }
+    ]
+}
