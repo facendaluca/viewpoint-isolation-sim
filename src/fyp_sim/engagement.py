@@ -8,17 +8,19 @@ from fyp_sim.policy import decide_action
 
 def watch_time_seconds(user: User, video: Video, rng: random.Random) -> int:
     """Return watch time (seconds) as an implicit feedback proxy.
-    Mapping:
-        - AVOID -> 0s
-        - SAMPLE -> 3-5s (capped by video duration)
-        - WATCH -> majority of the video (70-95% of duration)
 
-    Note: the action comes from 'decide_action', which incorporates phenotype _ interest (topic + tags) _ sentiment gating.
-    so a sampler can WATCH if interest is very high, etc.
+    Mapping (capped by video duration):
+        - AVOID -> 0 seconds
+        - SAMPLE -> 3-5 seconds (brief skim)
+        - WATCH -> 70-95% of duration (majority watched)
+
+    Notes:
+        - Action comes from 'decide_action' (phenotype + interest (topic/tags) + sentiment gating).
+        - This function is intentionally simple and stochastic but reproducible given rng seed.
     """
 
     if video.duration_s < 0:
-        raise ValueError("video.duration_seconds must be >= 0")
+        raise ValueError("video.duration_s must be >= 0")
 
     action = decide_action(user, video)
 
@@ -28,7 +30,7 @@ def watch_time_seconds(user: User, video: Video, rng: random.Random) -> int:
     if action == UserAction.SAMPLE:
         return min(video.duration_s, rng.randint(3, 5))
 
-    # WATCH: majority of the video
+    # WATCH: sample a "majority watched" fraction to reflect partial completion behaviour.
     if video.duration_s == 0:
         return 0
     fraction = rng.uniform(0.70, 0.95)
