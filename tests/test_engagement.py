@@ -47,5 +47,5 @@ def test_negative_duration_duration_raises_value_error():
     u = User(UserPhenotype.WATCHER, 0.5, {"politics": 0.7}, -0.2)
     v = Video(4, "politics", 0.6, 0.0, -10)
 
-    with pytest.raises(ValueError, match=r"^video\.duration_seconds must be >= 0$"):
+    with pytest.raises(ValueError, match=r"^video\.duration_s must be >= 0$"):
         watch_time_seconds(u, v, rng)

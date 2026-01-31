@@ -17,6 +17,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+from fyp_sim.analysis import compute_lock_in_metrics
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
 
@@ -30,7 +31,7 @@ def phenotype_from_str(s: str) -> UserPhenotype:
         return UserPhenotype.SAMPLER
     if s == "avoider":
         return UserPhenotype.AVOIDER
-    raise ValueError(f"Unknown phenotype: {s:r} (expected watcher/sampler/avoider)")
+    raise ValueError(f"Unknown phenotype: {s!r} (expected watcher/sampler/avoider)")
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -100,7 +101,12 @@ def write_run_log(path: Path, logs) -> None:
             )
 
 
-def summarise(logs) -> dict[str, float | int]:
+def summarise(
+    logs,
+    *,
+    lock_in_threshold: float,
+    persistence_window: int,
+) -> dict[str, float | int]:
     """Compute per-step logs into metrics suitable for tables/plots.
 
     Designed for reporting:
@@ -123,6 +129,13 @@ def summarise(logs) -> dict[str, float | int]:
     unique_videos_seen = len({r.video_id for r in logs})
     mean_watch_time = sum(r.watch_time_s for r in logs) / n
 
+    vii_series = [r.vii_t for r in logs]
+    li = compute_lock_in_metrics(
+        vii_series,
+        lock_in_threshold=lock_in_threshold,
+        persistence_window=persistence_window,
+    )
+
     return {
         "mean_vii": float(vii_mean),
         "final_vii_cum": float(final_vii_cum),
@@ -131,6 +144,11 @@ def summarise(logs) -> dict[str, float | int]:
         "avoid_rate": float(avoid_rate),
         "unique_videos_seen": int(unique_videos_seen),
         "mean_watch_time_s": float(mean_watch_time),
+        "lock_in_events": li.lock_in_events,
+        "time_to_first_lock_in": li.time_to_first_lock_in,
+        "max_consecutive_lock_in_steps": li.max_consecutive_lock_in_steps,
+        "total_lock_in_steps": li.total_lock_in_steps,
+        "lock_in_rate": float(li.lock_in_rate),
     }
 
 
@@ -141,6 +159,8 @@ def main() -> None:
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
     alpha = float(cfg["alpha"])
+    lock_in_threshold = float(cfg["lock_in_threshold"])
+    persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
 
     user = build_user(cfg)
@@ -169,13 +189,19 @@ def main() -> None:
         write_run_log(outputs_dir / f"run_seed_{seed}.csv", logs)
 
         # Summary row (tracked)
-        s = summarise(logs)
+        s = summarise(
+            logs,
+            lock_in_threshold=lock_in_threshold,
+            persistence_window=persistence_window,
+        )
         rows.append(
             {
                 "seed": seed,
                 "steps": steps,
                 "top_k": top_k,
                 "alpha": alpha,
+                "lock_in_threshold": lock_in_threshold,
+                "persistence_window": persistence_window,
                 **s,
             }
         )
