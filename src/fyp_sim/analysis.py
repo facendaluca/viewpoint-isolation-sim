@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,3 +85,48 @@ def compute_lock_in_metrics(
         total_lock_in_steps=total_lock_in_steps,
         lock_in_rate=lock_in_rate,
     )
+
+
+def summarise_logs(
+    logs: list[Any],
+    *,
+    lock_in_threshold: float,
+    persistence_window: int,
+) -> dict[str, float | int]:
+    """Summarise step logs into run-level metrics for table/plots."""
+    n = len(logs)
+    if n == 0:
+        raise ValueError("No logs to summarise.")
+
+    vii_mean = sum(r.vii_t for r in logs) / n
+    final_vii_cum = float(logs[-1].vii_cum)
+
+    actions = [str(r.action).lower() for r in logs]
+    watch_rate = actions.count("watch") / n
+    sample_rate = actions.count("sample") / n
+    avoid_rate = actions.count("avoid") / n
+
+    unique_videos_seen = len({r.video_id for r in logs})
+    mean_watch_time = sum(r.watch_time_s for r in logs) / n
+
+    vii_series = [float(r.vii_t) for r in logs]
+    li = compute_lock_in_metrics(
+        vii_series,
+        lock_in_threshold=lock_in_threshold,
+        persistence_window=persistence_window,
+    )
+
+    return {
+        "mean_vii": float(vii_mean),
+        "final_vii_cum": float(final_vii_cum),
+        "watch_rate": float(watch_rate),
+        "sample_rate": float(sample_rate),
+        "avoid_rate": float(avoid_rate),
+        "unique_videos_seen": int(unique_videos_seen),
+        "mean_watch_time": float(mean_watch_time),
+        "lock_in_events": int(li.lock_in_events),
+        "time_to_first_lock_in": int(li.time_to_first_lock_in),
+        "max_consecutive_lock_in_steps": int(li.max_consecutive_lock_in_steps),
+        "total_lock_in_steps": int(li.total_lock_in_steps),
+        "lock_in_rate": float(li.lock_in_rate),
+    }

@@ -23,26 +23,38 @@ from fyp_sim.models import User, Video
 from fyp_sim.policy import decide_action, interest_score
 
 
-def engagement_proxy(action) -> float:
-    """Heuristic engagement fraction used for ranking (not the actual watch time).
+def engagement_proxy(action, video: Video, *, max_duration: int) -> float:
+    """Deterministic engagement heuristic used for ranking (not actual watch time).
 
-    Purpose: incorporate a coarse notion of "likely engagement" into candidate ranking
-    while keeping the actual watch time simulation separate in 'watch_time_seconds'.
+    Idea:
+        - Avoid -> 0
+        - Sample -> small constant
+        - Watch -> prefers longer videos (more engagement opportunity)
+
+    This makes alpha more meaningful by preventing WATCH from always being the same value.
     """
-    if action.value.lower() == "avoid":
+    a = action.value.lower()
+    if a == "avoid":
         return 0.0
-    if action.value.lower() == "sample":
+    if a == "sample":
         return 0.2
-    return 0.8  # WATCH
+
+    # WATCH: scale with duration, bounded in [0.6, 1.0]
+    if max_duration <= 0:
+        return 0.8
+    return 0.6 + 0.4 * (video.duration_s / max_duration)
 
 
-def video_score(user: User, v: Video, *, alpha: float) -> float:
-    """Candidate ranking score = interest score + alpha * engagement proxy.
+def video_score(user: User, v: Video, *, alpha: float, max_duration: int) -> float:
+    """Candidate ranking score: convex combo of interest and engagement proxy.
 
-    alpha controls how strongly engagement heuristics influence ranking (0 = interest only).
+    alpha = 0.0 -> interest only
+    alpha = 1.0 -> engagement proxy only
     """
     a = decide_action(user, v)
-    return interest_score(user, v) + alpha * engagement_proxy(a)
+    e = engagement_proxy(a, v, max_duration=max_duration)
+    i = interest_score(user, v)
+    return (1.0 - alpha) * i + alpha * e
 
 
 # Step-level log row written out by scripts (e.g., CSV) for analysis and reporting.
@@ -81,7 +93,9 @@ def choose_video_weighted_top_k(
     if top_k <= 0:
         raise ValueError("top_k must be > 0")
 
-    scored = [(video_score(user, v, alpha=alpha), v) for v in pool]
+    max_d = max(v.duration_s for v in pool) if pool else 0
+
+    scored = [(video_score(user, v, alpha=alpha, max_duration=max_d), v) for v in pool]
     # Stable ordering: score desc, then video_id asc (prevents randomness in ties)
     scored.sort(key=lambda x: (-x[0], x[1].video_id))
 
