@@ -1,0 +1,69 @@
+{
+    "steps": 200,
+    "top_k": 2,
+    "alpha": 0.3,
+    "lock_in_threshold": 0.2,
+    "persistence_window": 10,
+    "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "user": {
+        "phenotype": "sampler",
+        "viewpoint_score": 0.4,
+        "sentiment_threshold": -0.2,
+        "interest_vector": {
+            "politics": 0.2,
+            "meme": 0.9,
+            "sports": 0.1,
+            "sleep": 0.3
+        }
+    },
+    "corpus": {
+        "source": "generated",
+        "n_videos": 100,
+        "seed": 999,
+        "generator": {
+            "topic": {
+                "weights": {
+                    "politics": 0.4,
+                    "sports": 0.2,
+                    "health_wellness": 0.2,
+                    "comedy_memes": 0.2
+                }
+            },
+            "viewpoint": {
+                "weights": {
+                    "0.0": 0.2,
+                    "0.5": 0.6,
+                    "1.0": 0.2
+                }
+            },
+            "duration": {
+                "dist": "lognormal",
+                "params": {
+                    "mean": 3.5,
+                    "sigma": 0.6
+                },
+                "min": 10,
+                "max": 180
+            },
+            "tags": {
+                "vocab": [
+                    "meme",
+                    "news",
+                    "viral",
+                    "cats",
+                    "football"
+                ],
+                "per_video": {
+                    "min": 0,
+                    "max": 3
+                }
+            }
+        }
+    }
+}

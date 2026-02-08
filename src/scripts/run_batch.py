@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.models import User, UserPhenotype, Video
+from fyp_sim.corpus import build_corpus
+from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
 
 
@@ -60,27 +61,6 @@ def build_user(cfg: dict[str, Any]) -> User:
     )
 
 
-def build_video_pool(cfg: dict[str, Any]) -> list[Video]:
-    """Construct the list of Video objects from the config.
-
-    Tags are free-form strings; they are not normalised here to keep the simulation flexible.
-    """
-    pool: list[Video] = []
-    for v in cfg["video_pool"]:
-        tags = tuple(v.get("tags", []))
-        pool.append(
-            Video(
-                int(v["video_id"]),
-                str(v["topic_category"]),
-                float(v["viewpoint_score"]),
-                float(v["sentiment_score"]),
-                int(v["duration_s"]),
-                tags=tags,
-            )
-        )
-    return pool
-
-
 def write_run_log(path: Path, logs) -> None:
     """Write per-step logs for one seed to CSV. (generated artifacts, gitignored)"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,7 +93,9 @@ def main() -> None:
     seeds = [int(x) for x in cfg["seeds"]]
 
     user = build_user(cfg)
-    pool = build_video_pool(cfg)
+
+    # Use the shared corpus builder
+    pool = build_corpus(cfg)
 
     outputs_dir = Path("outputs") / "runs"
     results_dir = Path("results")
