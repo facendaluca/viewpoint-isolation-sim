@@ -3,7 +3,7 @@
         "mode": "llm",
         "llm": {
             "base_url": "http://localhost:1234/v1",
-            "model": "",
+            "model": "llama-3.2-3b-instruct",
             "prompt_id": "decision_v1",
             "timeout_s": 15,
             "temperature": 0.0

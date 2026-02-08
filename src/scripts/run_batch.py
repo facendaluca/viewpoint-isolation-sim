@@ -21,7 +21,8 @@ from typing import Any
 from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.models import User, UserPhenotype, Video
+from fyp_sim.corpus import build_corpus
+from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
 
 
@@ -63,27 +64,6 @@ def build_user(cfg: dict[str, Any]) -> User:
     )
 
 
-def build_video_pool(cfg: dict[str, Any]) -> list[Video]:
-    """Construct the list of Video objects from the config.
-
-    Tags are free-form strings; they are not normalised here to keep the simulation flexible.
-    """
-    pool: list[Video] = []
-    for v in cfg["video_pool"]:
-        tags = tuple(v.get("tags", []))
-        pool.append(
-            Video(
-                int(v["video_id"]),
-                str(v["topic_category"]),
-                float(v["viewpoint_score"]),
-                float(v["sentiment_score"]),
-                int(v["duration_s"]),
-                tags=tags,
-            )
-        )
-    return pool
-
-
 def write_run_log(path: Path, logs) -> None:
     """Write per-step logs for one seed to CSV. (generated artifacts, gitignored)"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,7 +91,9 @@ def _policy_mode(cfg: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    cfg_path = Path("configs/experiment_baseline.json")
+    import sys
+
+    cfg_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("configs/experiment_baseline.json")
     cfg = load_config(cfg_path)
     logging.basicConfig(
         level=logging.INFO,
@@ -131,7 +113,9 @@ def main() -> None:
     seeds = [int(x) for x in cfg["seeds"]]
 
     user = build_user(cfg)
-    pool = build_video_pool(cfg)
+
+    # Use the shared corpus builder
+    pool = build_corpus(cfg)
 
     mode = _policy_mode(cfg)
     policy = cfg.get("policy", {}) or {}
@@ -148,6 +132,7 @@ def main() -> None:
             temperature=float(llm_cfg.get("temperature", 0.0)),
             max_tokens=llm_cfg.get("max_tokens"),
         )
+        print(f"DEBUG: Using base_url {client.base_url} model {client.model}")
 
         decider = LLMDecider(
             prompt_id=str(llm_cfg.get("prompt_id", "decision_v1")),

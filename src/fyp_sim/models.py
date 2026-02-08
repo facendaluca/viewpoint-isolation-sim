@@ -11,10 +11,10 @@ Conventions:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 
-class UserPhenotype(str, Enum):
+class UserPhenotype(StrEnum):
     """Survey-derived viewing style used by the policy layer."""
 
     AVOIDER = "avoider"
@@ -22,7 +22,7 @@ class UserPhenotype(str, Enum):
     WATCHER = "watcher"
 
 
-class UserAction(str, Enum):
+class UserAction(StrEnum):
     """Discrete engagement action produced by the policy layer."""
 
     AVOID = "Avoid"

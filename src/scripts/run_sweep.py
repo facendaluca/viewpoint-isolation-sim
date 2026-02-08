@@ -10,7 +10,8 @@ from typing import Any
 from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.models import User, UserPhenotype, Video
+from fyp_sim.corpus import build_corpus
+from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
 
 
@@ -40,23 +41,6 @@ def build_user(cfg: dict[str, Any]) -> User:
     )
 
 
-def build_video_pool(cfg: dict[str, Any]) -> list[Video]:
-    pool: list[Video] = []
-    for v in cfg["video_pool"]:
-        tags = tuple(v.get("tags", []))
-        pool.append(
-            Video(
-                int(v["video_id"]),
-                str(v["topic_category"]),
-                float(v["viewpoint_score"]),
-                float(v["sentiment_score"]),
-                int(v["duration_s"]),
-                tags=tags,
-            )
-        )
-    return pool
-
-
 def mean_std(xs: list[float]) -> tuple[float, float]:
     if not xs:
         return 0.0, 0.0
@@ -81,7 +65,9 @@ def main() -> None:
     persistence_window = int(cfg["persistence_window"])
 
     user = build_user(cfg)
-    pool = build_video_pool(cfg)
+
+    # Use shared corpus builder
+    pool = build_corpus(cfg)
 
     mode = _policy_mode(cfg)
 

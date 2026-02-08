@@ -10,6 +10,20 @@ Return ONLY a single JSON object that conforms to the "LLM Decision Contract (v1
 - Do NOT include any other keys.
 - Do NOT wrap the JSON in markdown fences.
 
+CRITICAL JSON RULES:
+- NEVER output null (no None/null anywhere). If you don't know a value, OMIT the key entirely.
+- If you include watch_time_s it MUST be an integer.
+- watch_time_s MUST be within [0, video.duration_s].
+- Prefer OMITTING optional keys rather than guessing.
+
+ACTION-SPECIFIC RULES:
+- If action == "Avoid":
+  - DO NOT include watch_time_s (omit it).
+- If action == "Sample":
+  - Include watch_time_s as an integer between 1 and min(10, video.duration_s).
+- If action == "Watch":
+  - Include watch_time_s as an integer between 1 and video.duration_s (usually set it to video.duration_s).
+
 Context:
 - User phenotype: {user.phenotype}
 - User viewpoint_score: {user.viewpoint_score}
