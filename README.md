@@ -43,3 +43,43 @@ pip install -e .
 # dev tools
 pip install pytest ruff pre-commit
 pre-commit install
+
+## Synthetic Corpus Generation
+To generate and inspect a deterministic corpus:
+```bash
+python3 -m src.scripts.generate_corpus --config configs/experiment_generated_corpus.json --out outputs/corpus.json
+```
+
+To use a generated corpus in an experiment, ensure your config has:
+```json
+"corpus": {
+    "source": "generated",
+    "n_videos": 1000,
+    "seed": 42,
+    "generator": { ... }
+}
+```
+The corpus is deterministically generated based on `N`, `seed`, and `config` settings.
+
+## Structured Batch Execution
+The `run_batch.py` script now supports structured outputs and manifest generation.
+
+### Usage
+```bash
+# Default (static corpus from config)
+python3 -m src.scripts.run_batch configs/experiment_baseline.json
+
+# Override with generated corpus (deterministic)
+python3 -m src.scripts.run_batch configs/experiment_baseline.json \
+  --corpus-mode generated \
+  --corpus-size 5000 \
+  --corpus-seed 12345
+```
+
+### Output Layout
+Outputs are saved to `outputs/runs/<RUN_ID>/`:
+- `manifest.json`: Metadata, status, and configuration snapshot.
+- `resolved_config.json`: The exact configuration used.
+- `batch.log`: High-level execution log.
+- `runs/run_XXX/`: Per-seed simulation logs (`run.log.csv`).
+- `aggregate/summary.csv`: Summary metrics for all runs in the batch.

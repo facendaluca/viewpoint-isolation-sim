@@ -42,6 +42,13 @@
                     "1.0": 0.2
                 }
             },
+            "sentiment": {
+                "weights": {
+                    "-1.0": 0.1,
+                    "0.0": 0.1,
+                    "1.0": 0.8
+                }
+            },
             "duration": {
                 "dist": "lognormal",
                 "params": {
