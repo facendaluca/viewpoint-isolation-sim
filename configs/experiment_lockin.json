@@ -1,0 +1,70 @@
+{
+    "steps": 400,
+    "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+    ],
+    "alpha_grid": [
+        0.0,
+        0.1,
+        0.3,
+        0.5,
+        0.8
+    ],
+    "top_k_grid": [
+        1,
+        2,
+        3,
+        5,
+        10
+    ],
+    "lock_in_threshold": 0.2,
+    "persistence_window": 10,
+    "user": {
+        "phenotype": "sampler",
+        "viewpoint_score": 0.4,
+        "sentiment_threshold": -0.2,
+        "interest_vector": {
+            "politics": 0.2,
+            "international_news": 0.1,
+            "social_issues_activism": 0.15,
+            "health_wellness": 0.25,
+            "finance_economics": 0.2,
+            "comedy_memes": 0.3,
+            "diy_life_hacks": 0.2,
+            "fashion_beauty": 0.15,
+            "sports": 0.15,
+            "meme": 0.9,
+            "satire": 0.7,
+            "football": 0.6,
+            "sleep": 0.35,
+            "gym": 0.25,
+            "cooking": 0.35,
+            "investing": 0.3,
+            "skincare": 0.2,
+            "productivity": 0.3,
+            "lifehack": 0.25,
+            "travel": 0.2,
+            "news": 0.15,
+            "activism": 0.15,
+            "standup": 0.25,
+            "debate": 0.2,
+            "podcast": 0.2
+        }
+    },
+    "corpus": {
+        "source": "generated",
+        "n_videos": 1000,
+        "seed": 42,
+        "generator": {
+            "duration": {
+                "min": 15,
+                "max": 60,
+                "viewpoint_multiplier": 4.0
+            }
+        }
+    }
+}

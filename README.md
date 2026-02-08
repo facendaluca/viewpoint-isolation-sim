@@ -83,3 +83,31 @@ Outputs are saved to `outputs/runs/<RUN_ID>/`:
 - `batch.log`: High-level execution log.
 - `runs/run_XXX/`: Per-seed simulation logs (`run.log.csv`).
 - `aggregate/summary.csv`: Summary metrics for all runs in the batch.
+
+### Running Sweeps
+The `run_sweep.py` script also supports structured outputs and corpus generation.
+```bash
+# Default sweep (static corpus)
+python3 -m src.scripts.run_sweep configs/experiment_sweep.json
+
+# Sweep with generated corpus
+python3 -m src.scripts.run_sweep configs/experiment_sweep.json \
+  --corpus-mode generated \
+  --corpus-size 1000 \
+  --corpus-seed 42 \
+  --name "my_sweep"
+```
+Sweep outputs are saved to `outputs/runs/<SWEEP_RUN_ID>/` with an `aggregate/sweep_summary.csv`.
+
+### Plotting
+To generate plots from a sweep, point `make_plots.py` to the summary CSV or Run ID:
+
+```bash
+# Using explicit summary path
+python3 -m src.scripts.make_plots \
+  --sweep-summary outputs/runs/<SWEEP_RUN_ID>/aggregate/sweep_summary.csv \
+  --out-dir outputs/plots/<SWEEP_RUN_ID>
+
+# Using Run ID (auto-derives paths)
+python3 -m src.scripts.make_plots --run-id <SWEEP_RUN_ID>
+```

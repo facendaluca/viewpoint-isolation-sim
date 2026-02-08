@@ -154,6 +154,14 @@ def generate_video_corpus(
         # 4. Duration
         duration = _sample_duration(rng, duration_cfg)
 
+        # Optional: Viral bonus for extreme viewpoints
+        # Multiplier scales duration based on |viewpoint - 0.5|
+        # e.g. multiplier 2.0 -> extreme (0.0 or 1.0) gets +100% duration
+        vp_mult = duration_cfg.get("viewpoint_multiplier", 0.0)
+        if vp_mult > 0.0:
+            extremity = abs(viewpoint - 0.5) * 2.0  # 0.0 to 1.0
+            duration = int(duration * (1.0 + vp_mult * extremity))
+
         # 5. Tags
         video_tags = []
         if vocab:

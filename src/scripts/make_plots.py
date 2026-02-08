@@ -1,5 +1,11 @@
+"""
+Plotting script for sweep results.
+"""
+
 from __future__ import annotations
 
+import argparse
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -33,16 +39,56 @@ def heatmap(
     plt.close(fig)
 
 
-def main() -> None:
-    sweep_path = Path("results/sweep_summary.csv")
-    out_dir = Path("outputs/plots")
-    out_dir.mkdir(parents=True, exist_ok=True)
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Generate plots from sweep summary.")
+    parser.add_argument("--sweep-summary", type=Path, help="Path to sweep_summary.csv")
+    parser.add_argument("--run-id", type=str, help="Sweep Run ID (auto-derives paths).")
+    parser.add_argument("--out-dir", type=Path, help="Output directory for plots.")
+    args = parser.parse_args()
 
-    df = pd.read_csv(sweep_path)
+    # Resolve paths
+    sweep_path: Path | None = None
+    out_dir: Path = args.out_dir
+
+    if args.run_id:
+        sweep_path = Path("outputs/runs") / args.run_id / "aggregate" / "sweep_summary.csv"
+        if out_dir is None:
+            out_dir = Path("outputs/plots") / args.run_id
+    elif args.sweep_summary:
+        sweep_path = args.sweep_summary
+        if out_dir is None:
+            out_dir = Path("outputs/plots")
+    else:
+        # Fallback for backward compat / default dev flow
+        sweep_path = Path("results/sweep_summary.csv")
+        if out_dir is None:
+            out_dir = Path("outputs/plots")
+
+    if not sweep_path.exists():
+        print(f"Error: Sweep summary not found: {sweep_path}", file=sys.stderr)
+        return 1
+
+    if out_dir is None:
+        out_dir = Path("outputs/plots")
+
+    try:
+        df = pd.read_csv(sweep_path)
+    except Exception as e:
+        print(f"Error reading CSV: {e}", file=sys.stderr)
+        return 1
+
+    # Validation
+    required_cols = {"top_k", "alpha", "mean_vii_mean", "lock_in_rate_mean"}
+    missing = required_cols - set(df.columns)
+    if missing:
+        print(f"Error: Missing columns in CSV: {missing}", file=sys.stderr)
+        return 1
 
     # Ensure numeric types
     df["top_k"] = df["top_k"].astype(int)
     df["alpha"] = df["alpha"].astype(float)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     heatmap(
         df,
@@ -59,7 +105,8 @@ def main() -> None:
     )
 
     print(f"Wrote plots to: {out_dir}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
