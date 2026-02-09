@@ -25,3 +25,4 @@ outputs/plots/
 outputs/runs/
 results/*.csv
 
+results/
