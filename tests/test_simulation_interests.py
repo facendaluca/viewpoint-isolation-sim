@@ -45,6 +45,7 @@ def test_simulation_updates_interest_profile():
         chooser=choose_max_interest_wrapper,
         top_k=2,
         alpha=0.0,
+        enable_interest_updates=True,
     )
 
     after = user.interest_vector.get("Education", 0.0)

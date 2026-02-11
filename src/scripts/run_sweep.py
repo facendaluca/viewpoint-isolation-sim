@@ -7,8 +7,6 @@ import statistics
 from pathlib import Path
 from typing import Any
 
-from fyp_sim.agents import HeuristicDecider, LLMDecider
-from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -65,11 +63,6 @@ def mean_std(xs: list[float]) -> tuple[float, float]:
     return float(statistics.mean(xs)), float(statistics.pstdev(xs))
 
 
-def _policy_mode(cfg: dict[str, Any]) -> str:
-    policy = cfg.get("policy", {}) or {}
-    return str(policy.get("mode", "heuristic")).strip().lower()
-
-
 def main() -> None:
     cfg = load_config(Path("configs/experiment_sweep.json"))
 
@@ -82,34 +75,6 @@ def main() -> None:
 
     user = build_user(cfg)
     pool = build_video_pool(cfg)
-
-    mode = _policy_mode(cfg)
-
-    policy = cfg.get("policy", {}) or {}
-    llm_cfg = policy.get("llm", {}) or {}
-
-    if mode == "llm":
-        if "model" not in llm_cfg:
-            raise ValueError("policy.llm.model is required when policy.mode='llm'")
-
-        client = OpenAICompatClient(
-            base_url=str(llm_cfg.get("base_url") or "http://localhost:1234/v1"),
-            model=str(llm_cfg["model"]),
-            api_key=str(llm_cfg.get("api_key")),
-            temperature=float(llm_cfg.get("temperature", 0.0)),
-            max_tokens=llm_cfg.get("max_tokens"),
-        )
-
-        decider = LLMDecider(
-            prompt_id=str(llm_cfg.get("prompt_id", "decision_v1")),
-            client=client,
-            timeout_s=float(llm_cfg.get("timeout_s", 10.0)),
-            fallback=HeuristicDecider(),
-        )
-    elif mode == "heuristic":
-        decider = HeuristicDecider()
-    else:
-        raise ValueError("policy.mode must be 'heuristic' or 'llm'")
 
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
@@ -131,7 +96,12 @@ def main() -> None:
                     rng=rng,
                     top_k=top_k,
                     alpha=alpha,
-                    decider=decider,
+                    enable_interest_updates=bool(cfg.get("enable_interest_updates", False)),
+                    interest_topic_alpha=float(cfg.get("interest_topic_alpha", 0.10)),
+                    interest_tag_alpha=float(cfg.get("interest_tag_alpha", 0.05)),
+                    interest_decay=float(cfg.get("interest_decay", 0.02)),
+                    interest_normalise=bool(cfg.get("interest_normalise", False)),
+                    interest_prune_below=float(cfg.get("interest_prune_below", 0.001)),
                 )
                 per_seed.append(
                     summarise_logs(

@@ -1,2 +1,0 @@
-seed,steps,top_k,alpha,lock_in_threshold,persistence_window,mean_vii,final_vii_cum,watch_rate,sample_rate,avoid_rate,unique_videos_seen,mean_watch_time,lock_in_events,time_to_first_lock_in,max_consecutive_lock_in_steps,total_lock_in_steps,lock_in_rate
-0,10,2,0.3,0.2,10,0.4,0.4,1.0,0.0,0.0,2,21.0,0,-1,0,0,0.0
