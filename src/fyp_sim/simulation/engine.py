@@ -19,8 +19,9 @@ from typing import Protocol
 
 from fyp_sim.agents import ActionDecider, HeuristicDecider
 from fyp_sim.engagement import watch_time_seconds
+from fyp_sim.interests import update_interest_vector
 from fyp_sim.metrics import running_mean, viewpoint_distance
-from fyp_sim.models import User, Video
+from fyp_sim.models import User, UserAction, Video
 from fyp_sim.policy import decide_action, interest_score
 
 
@@ -164,6 +165,9 @@ def run_simulation(
         v = chooser(user, video_pool, rng, top_k=top_k, alpha=alpha)
         action = decider.decide_next_action(user, v)
         wt = watch_time_fn(user, v, rng)
+
+        if action == UserAction.WATCH:
+            update_interest_vector(user=user, video=v, watch_time_s=wt)
 
         vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
         # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
