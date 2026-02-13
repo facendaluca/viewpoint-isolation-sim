@@ -47,7 +47,9 @@ def engagement_proxy(action, video: Video, *, max_duration: int) -> float:
     return 0.6 + 0.4 * (video.duration_s / max_duration)
 
 
-def video_score(user: User, v: Video, *, alpha: float, max_duration: int) -> float:
+def video_score(
+    user: User, v: Video, *, alpha: float, max_duration: int, use_interest_in_ranking: bool
+) -> float:
     """Candidate ranking score: convex combo of interest and engagement proxy.
 
     alpha = 0.0 -> interest only
@@ -55,7 +57,7 @@ def video_score(user: User, v: Video, *, alpha: float, max_duration: int) -> flo
     """
     a = decide_action(user, v)
     e = engagement_proxy(a, v, max_duration=max_duration)
-    i = interest_score(user, v)
+    i = interest_score(user, v) if use_interest_in_ranking else 0.0
     return (1.0 - alpha) * i + alpha * e
 
 
@@ -81,11 +83,21 @@ class StepLog:
     llm_confidence: float | None = None
 
 
-def choose_video_max_interest(user: User, pool: list[Video]) -> Video:
+def choose_video_max_interest(
+    user: User,
+    pool: list[Video],
+    rng,
+    *,
+    top_k,
+    alpha,
+    use_interest_in_ranking,
+) -> Video:
     """Deterministic baseline: always choose the most 'interesting' video.
 
     Useful as a sanity check/baseline policy (no exploration).
     """
+    if not use_interest_in_ranking:
+        raise ValueError("use_interest_in_ranking must be True for choose_video_max_interest")
     return max(pool, key=lambda v: interest_score(user, v))
 
 
@@ -96,6 +108,7 @@ def choose_video_weighted_top_k(
     *,
     top_k: int = 3,
     alpha: float = 0.3,
+    use_interest_in_ranking: bool = True,
 ) -> Video:
     """Rank videos by score, take top_k, then choose using weighted randomness.
 
@@ -107,7 +120,19 @@ def choose_video_weighted_top_k(
 
     max_d = max(v.duration_s for v in pool) if pool else 0
 
-    scored = [(video_score(user, v, alpha=alpha, max_duration=max_d), v) for v in pool]
+    scored = [
+        (
+            video_score(
+                user,
+                v,
+                alpha=alpha,
+                max_duration=max_d,
+                use_interest_in_ranking=use_interest_in_ranking,
+            ),
+            v,
+        )
+        for v in pool
+    ]
     # Stable ordering: score desc, then video_id asc (prevents randomness in ties)
     scored.sort(key=lambda x: (-x[0], x[1].video_id))
 
@@ -131,6 +156,7 @@ class ChooserFn(Protocol):
         *,
         top_k: int,
         alpha: float,
+        use_interest_in_ranking: bool,
     ) -> Video: ...
 
 
@@ -144,6 +170,7 @@ def run_simulation(
     alpha: float = 0.3,
     chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
+    use_interest_in_ranking: bool = True,
     decider: ActionDecider | None = None,
     enable_interest_updates: bool = False,
     interest_topic_alpha: float = 0.10,
@@ -170,6 +197,15 @@ def run_simulation(
 
     for t in range(steps):
         # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
+        v = chooser(
+            user,
+            video_pool,
+            rng,
+            top_k=top_k,
+            alpha=alpha,
+            use_interest_in_ranking=use_interest_in_ranking,
+        )
+        action = decide_action(user, v)
         v = chooser(user, video_pool, rng, top_k=top_k, alpha=alpha)
         action = decider.decide_next_action(user, v)
         wt = watch_time_fn(user, v, rng)

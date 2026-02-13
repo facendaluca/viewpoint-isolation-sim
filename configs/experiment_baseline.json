@@ -15,6 +15,7 @@
     "alpha": 0.3,
     "lock_in_threshold": 0.2,
     "persistence_window": 10,
+    "use_interest_in_ranking": true,
     "enable_interest_updates": false,
     "interest_topic_alpha": 0.10,
     "interest_tag_alpha": 0.05,

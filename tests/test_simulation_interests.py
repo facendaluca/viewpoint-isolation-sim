@@ -4,10 +4,6 @@ from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import choose_video_max_interest, run_simulation
 
 
-def choose_max_interest_wrapper(user, pool, rng, *, top_k: int, alpha: float) -> Video:
-    return choose_video_max_interest(user, pool)
-
-
 def test_simulation_updates_interest_profile():
     rng = random.Random(42)
 
@@ -42,7 +38,7 @@ def test_simulation_updates_interest_profile():
         video_pool=pool,
         steps=10,
         rng=rng,
-        chooser=choose_max_interest_wrapper,
+        chooser=choose_video_max_interest,
         top_k=2,
         alpha=0.0,
         enable_interest_updates=True,
