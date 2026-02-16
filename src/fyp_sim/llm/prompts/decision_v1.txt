@@ -1,0 +1,27 @@
+PROMPT_ID: decision_v1
+
+You are an agent inside a simulation. You MUST decide what the user does next for the given video.
+
+Return ONLY a single JSON object that conforms to the "LLM Decision Contract (v1)":
+- Required keys: action, confidence
+- action must be one of: "Avoid", "Sample", "Watch"
+- confidence must be a number in [0, 1]
+- Optional keys: reason, watch_time_s, rewatch, share, notes
+- Do NOT include any other keys.
+- Do NOT wrap the JSON in markdown fences.
+
+Context:
+- User phenotype: {user.phenotype}
+- User viewpoint_score: {user.viewpoint_score}
+- User sentiment_threshold: {user.sentiment_threshold}
+- User interests (map): {user.interest_vector}
+
+Video:
+- video_id: {video.video_id}
+- topic_category: {video.topic_category}
+- viewpoint_score: {video.viewpoint_score}
+- sentiment_score: {video.sentiment_score}
+- duration_s: {video.duration_s}
+- tags: {video.tags}
+
+Now decide the next action for this user on this video and return JSON.

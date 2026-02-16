@@ -1,4 +1,7 @@
 {
+    "policy": {
+        "mode": "llm"
+    },
     "steps": 200,
     "top_k": 2,
     "alpha": 0.3,
@@ -10,7 +13,8 @@
         1,
         2,
         3,
-        4
+        4,
+        5
     ],
     "user": {
         "phenotype": "sampler",
@@ -62,6 +66,38 @@
             "duration_s": 30,
             "tags": [
                 "sleep"
+            ]
+        },
+        {
+            "video_id": 5,
+            "topic_category": "politics",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme",
+                "satire",
+                "debate",
+                "podcast",
+                "news",
+                "activism",
+                "standup",
+                "debate",
+                "podcast"
+            ]
+        },
+        {
+            "video_id": 6,
+            "topic_category": "international_news",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "news",
+                "travel",
+                "activism",
+                "podcast",
+                "debate"
             ]
         }
     ]

@@ -17,6 +17,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -101,6 +102,11 @@ def write_run_log(path: Path, logs) -> None:
             )
 
 
+def _policy_mode(cfg: dict[str, Any]) -> str:
+    policy = cfg.get("policy", {}) or {}
+    return str(policy.get("mode", "heuristic")).strip().lower()
+
+
 def main() -> None:
     cfg_path = Path("configs/experiment_baseline.json")
     cfg = load_config(cfg_path)
@@ -114,6 +120,14 @@ def main() -> None:
 
     user = build_user(cfg)
     pool = build_video_pool(cfg)
+
+    mode = _policy_mode(cfg)
+    if mode == "llm":
+        decider = LLMDecider()
+    elif mode == "heuristic":
+        decider = HeuristicDecider()
+    else:
+        raise ValueError("policy.mode must be 'heuristic' or 'llm'")
 
     outputs_dir = Path("outputs") / "runs"
     results_dir = Path("results")
@@ -132,6 +146,7 @@ def main() -> None:
             rng=rng,
             top_k=top_k,
             alpha=alpha,
+            decider=decider,
         )
 
         # Per-run logs are generated artifacts (gitignored) for inspection/debugging.

@@ -4,7 +4,7 @@ Simulation engine.
 This module runs a minimal, reproducible simulation loop for a single user.
 At each timestep t:
     1) choose a video from a pool (baseline or Top-K weighted chooser),
-    2) decide an action (policy),
+    2) decide an action (policy/agent),
     3) convert action -> watch time (implicit feedback proxy),
     4) compute viewpoint distance (VII_t) and its running mean (VII_cum),
     5) log everything for later analysis/reporting.
@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from fyp_sim.agents import ActionDecider, HeuristicDecider
 from fyp_sim.engagement import watch_time_seconds
 from fyp_sim.metrics import running_mean, viewpoint_distance
 from fyp_sim.models import User, Video
@@ -132,6 +133,7 @@ def run_simulation(
     alpha: float = 0.3,
     chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
+    decider: ActionDecider | None = None,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
     if steps <= 0:
@@ -142,6 +144,9 @@ def run_simulation(
         raise ValueError("top_k must be > 0")
     if alpha < 0.0 or alpha > 1.0:
         raise ValueError("alpha must be between 0.0 and 1.0")
+
+    if decider is None:
+        decider = HeuristicDecider()
 
     logs: list[StepLog] = []
     vii_cum = 0.0

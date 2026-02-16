@@ -7,6 +7,7 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -63,6 +64,11 @@ def mean_std(xs: list[float]) -> tuple[float, float]:
     return float(statistics.mean(xs)), float(statistics.pstdev(xs))
 
 
+def _policy_mode(cfg: dict[str, Any]) -> str:
+    policy = cfg.get("policy", {}) or {}
+    return str(policy.get("mode", "heuristic")).strip().lower()
+
+
 def main() -> None:
     cfg = load_config(Path("configs/experiment_sweep.json"))
 
@@ -75,6 +81,14 @@ def main() -> None:
 
     user = build_user(cfg)
     pool = build_video_pool(cfg)
+
+    mode = _policy_mode(cfg)
+    if mode == "llm":
+        decider = LLMDecider()
+    elif mode == "heuristic":
+        decider = HeuristicDecider()
+    else:
+        raise ValueError("policy.mode must be 'heuristic' or 'llm'")
 
     results_dir = Path("results")
     results_dir.mkdir(exist_ok=True)
@@ -96,6 +110,7 @@ def main() -> None:
                     rng=rng,
                     top_k=top_k,
                     alpha=alpha,
+                    decider=decider,
                 )
                 per_seed.append(
                     summarise_logs(
