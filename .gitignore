@@ -23,4 +23,5 @@ outputs/
 results/*.png
 outputs/plots/
 outputs/runs/
+results/*.csv
 

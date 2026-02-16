@@ -18,6 +18,43 @@ This project builds a controlled simulation with:
 - **Sweeps:** LLM-based agent to test semantic resilience under identical exposure conditions 
 - **Outputs:** per-run logs (CSV) + aggegated summaries + plots for the report
 
+## LLM Decision Contract (JSON Schema)
+
+When using the LLM-based policy (or any external decision maker), decisions must conform to the **Decision Contract** defined by:
+
+- 'src/fyp_sim/llm/decision.schema.json'
+
+Validation is strict:
+- Unknown fields rejected
+- Type mismatches rejected
+- Enum violations rejected
+- Clear validation errors are logged and a 'DecisionValidationError' is raised
+
+### Required fields
+- 'action' (string enum): 'Avoid' | 'Sample' | 'Watch'
+- 'confidence' (number): '0.0' to '1.0'
+
+### Optional fields
+- 'reason' (string)
+- 'watch_time_s' (integer, >= 0)
+- 'rewatch' (boolean)
+- 'share' (boolean)
+- 'notes' (string)
+
+### Example decision JSON
+
+```json
+{
+    "action": "Watch",
+    "confidence": 0.87,
+    "reason": "User historically watches similar topics longer.",
+    "watch_time_s": 12,
+    "rewatch": false,
+    "share": false,
+    "notes": "optional: debug/trace info"
+}
+```
+
 ## Repo structure
 - `src/fyp_sim/` : core simulation code (models, metrics, policy, engagement, taxonomy, analysis, simulation engine)
 - `src/scripts/`: runnable scripts (batch runners, sweeps, plotting)
