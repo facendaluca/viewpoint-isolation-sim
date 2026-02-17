@@ -1,6 +1,13 @@
 {
     "policy": {
-        "mode": "llm"
+        "mode": "llm",
+        "llm": {
+            "base_url": "http://localhost:1234/v1",
+            "model": "",
+            "prompt_id": "decision_v1",
+            "timeout_s": 15,
+            "temperature": 0.0
+        }
     },
     "steps": 200,
     "top_k": 2,

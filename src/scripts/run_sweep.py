@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.agents import HeuristicDecider, LLMDecider
+from fyp_sim.agents.clients import OpenAICompactClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -83,8 +84,28 @@ def main() -> None:
     pool = build_video_pool(cfg)
 
     mode = _policy_mode(cfg)
+
+    policy = cfg.get("policy", {}) or {}
+    llm_cfg = policy.get("llm", {}) or {}
+
     if mode == "llm":
-        decider = LLMDecider()
+        if "model" not in llm_cfg:
+            raise ValueError("policy.llm.model is required when policy.mode='llm'")
+
+        client = OpenAICompactClient(
+            base_url=str(llm_cfg.get("base_url", "http://localhost:1234/v1")),
+            model=str(llm_cfg["model"]),
+            api_key=str(llm_cfg.get("api_key")),
+            temperature=float(llm_cfg.get("temperature", 0.0)),
+            max_tokens=llm_cfg.get("max_tokens"),
+        )
+
+        decider = LLMDecider(
+            prompt_id=str(llm_cfg.get("prompt_id", "decision_v1")),
+            client=client,
+            timeout_s=float(llm_cfg.get("timeout_s", 10.0)),
+            fallback=HeuristicDecider(),
+        )
     elif mode == "heuristic":
         decider = HeuristicDecider()
     else:
