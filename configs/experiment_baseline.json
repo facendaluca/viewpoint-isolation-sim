@@ -2,26 +2,21 @@
     "policy": {
         "mode": "llm",
         "llm": {
-            "base_url": "http://localhost:1234/v1",
-            "model": "",
+            "base_url": "http://192.168.1.81:1234/v1",
+            "model": "google/gemma-3-4b",
             "prompt_id": "decision_v1",
             "timeout_s": 15,
-            "temperature": 0.0
+            "temperature": 0.0,
+            "max_tokens": 200
         }
     },
-    "steps": 200,
+    "steps": 10,
     "top_k": 2,
     "alpha": 0.3,
     "lock_in_threshold": 0.2,
     "persistence_window": 10,
     "seeds": [
-        0,
-        1,
-        1,
-        2,
-        3,
-        4,
-        5
+        0
     ],
     "user": {
         "phenotype": "sampler",

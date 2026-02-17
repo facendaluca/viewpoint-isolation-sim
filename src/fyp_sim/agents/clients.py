@@ -8,7 +8,7 @@ from urllib.request import Request, urlopen
 
 
 @dataclass(slots=True)
-class OpenAICompactClient:
+class OpenAICompatClient:
     """
     Minimal OpenAI-compatible client for local servers (LM Studio / vLLM / etc.)
 
@@ -23,8 +23,13 @@ class OpenAICompactClient:
     temperature: float = 0.0
     max_tokens: int | None = None
 
+    def __post_init__(self) -> None:
+        if not self.base_url:
+            raise ValueError("OpenAICompatClient.base_url must be a non-empty string")
+        self.base_url = self.base_url.rstrip("/")
+
     def complete(self, prompt: str, *, timeout_s: float) -> str:
-        url = self.base_url.rstrip("/") + "/chat/completions"
+        url = self.base_url + "/chat/completions"
 
         payload: dict[str, Any] = {
             "model": self.model,

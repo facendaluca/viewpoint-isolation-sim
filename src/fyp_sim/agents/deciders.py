@@ -12,6 +12,16 @@ from fyp_sim.policy import decide_action
 logger = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
+class DecisionMeta:
+    policy_mode: str
+    prompt_id: str | None = None
+    valid: bool = True
+    fallback_reason: str = ""
+    llm_action: str = ""
+    llm_confidence: float | None = None
+
+
 class ActionDecider(Protocol):
     """Single deision interface used by the simulation loop."""
 
@@ -28,7 +38,12 @@ class LLMClient(Protocol):
 class HeuristicDecider:
     """Adapter around the existing heuristic policy (baseline / deterministic)."""
 
+    last_meta: DecisionMeta = field(
+        default_factory=lambda: DecisionMeta(policy_mode="heuristic", valid=True)
+    )
+
     def decide_next_action(self, user: User, video: Video) -> UserAction:
+        self.last_meta = DecisionMeta(policy_mode="heuristic", valid=True)
         return decide_action(user, video)
 
 
@@ -39,16 +54,22 @@ def _extract_first_json_object(text: str) -> str:
     Many local models sometimes preprend/append extra text. We try to salvage the first {...}.
     If extraction fails, return the original text (which will then fail validation cleanly).
     """
-    start = text.find("{")
-    if start == -1:
+
+    if not text:
         return text
+
+    s = text.strip()
+
+    start = s.find("{")
+    if start == -1:
+        return s
 
     depth = 0
     in_str = False
     esc = False
 
-    for i in range(start, len(text)):
-        ch = text[i]
+    for i in range(start, len(s)):
+        ch = s[i]
         if in_str:
             if esc:
                 esc = False
@@ -65,9 +86,9 @@ def _extract_first_json_object(text: str) -> str:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return text[start : i + 1]
+                return s[start : i + 1]
 
-    return text
+    return s[start:]
 
 
 @dataclass(slots=True)
@@ -85,8 +106,10 @@ class LLMDecider:
     client: LLMClient | None = None
     timeout_s: float = 10.0
     fallback: ActionDecider = field(default_factory=HeuristicDecider)
+    last_meta: DecisionMeta = field(default_factory=lambda: DecisionMeta(policy_mode="llm"))
 
     _warned_no_client: bool = False
+    _warned_unreachable: bool = False
 
     def decide_next_action(self, user: User, video: Video) -> UserAction:
         if self.client is None:
@@ -96,24 +119,52 @@ class LLMDecider:
                     self.prompt_id,
                 )
                 self._warned_no_client = True
+
+            # always set meta so each step log has correct info
+            self.last_meta = DecisionMeta(
+                policy_mode="llm",
+                prompt_id=self.prompt_id,
+                valid=False,
+                fallback_reason="no_client",
+            )
             return self.fallback.decide_next_action(user, video)
 
         prompt = render_decision_prompt(self.prompt_id, user=user, video=video)
 
         try:
             raw = self.client.complete(prompt, timeout_s=self.timeout_s)
+            self._warned_unreachable = False
         except TimeoutError as e:
-            logger.warning(
-                "LLM call timed out. prompt_id=%s: %s -> fallback=timeout (%s)",
-                self.prompt_id,
-                str(e),
+            # Always record meta data for CSV/analysis
+            self.last_meta = DecisionMeta(
+                policy_mode="llm",
+                prompt_id=self.prompt_id,
+                valid=False,
+                fallback_reason="timeout",
             )
+
+            # Log only once to avoid spamming when server is down
+            if not self._warned_unreachable:
+                logger.warning(
+                    "LLM unreachable. prompt_id=%s err=%s -> falling back to heuristic",
+                    self.prompt_id,
+                    str(e),
+                )
+                self._warned_unreachable = True
+            else:
+                logger.debug("LLM still unreachable. prompt_id=%s err=%s -> fallback=timeout")
             return self.fallback.decide_next_action(user, video)
         except Exception as e:
             logger.warning(
-                "LLM call failed.prompt_id=%s: %s -> fallback=client_error (%s)",
+                "LLM call failed.prompt_id=%s err=%s -> fallback=client_error",
                 self.prompt_id,
                 type(e).__name__,
+            )
+            self.last_meta = DecisionMeta(
+                policy_mode="llm",
+                prompt_id=self.prompt_id,
+                valid=False,
+                fallback_reason="client_error",
             )
             return self.fallback.decide_next_action(user, video)
 
@@ -127,6 +178,12 @@ class LLMDecider:
                 self.prompt_id,
                 str(e).splitlines()[0],
             )
+            self.last_meta = DecisionMeta(
+                policy_mode="llm",
+                prompt_id=self.prompt_id,
+                valid=False,
+                fallback_reason="invalid_output",
+            )
             return self.fallback.decide_next_action(user, video)
         except Exception as e:
             logger.warning(
@@ -134,12 +191,25 @@ class LLMDecider:
                 self.prompt_id,
                 type(e).__name__,
             )
+            self.last_meta = DecisionMeta(
+                policy_mode="llm",
+                prompt_id=self.prompt_id,
+                valid=False,
+                fallback_reason="invalid_output",
+            )
             return self.fallback.decide_next_action(user, video)
 
-        logger.info(
+        logger.debug(
             "LLM decision valid. prompt_id=%s valid=true action=%s confidence=%.3f",
             self.prompt_id,
             decision.action.value,
             decision.confidence,
+        )
+        self.last_meta = DecisionMeta(
+            policy_mode="llm",
+            prompt_id=self.prompt_id,
+            valid=True,
+            llm_action=decision.action.value,
+            llm_confidence=decision.confidence,
         )
         return decision.action

@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import random
 from pathlib import Path
 from typing import Any
 
 from fyp_sim.agents import HeuristicDecider, LLMDecider
-from fyp_sim.agents.clients import OpenAICompactClient
+from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -105,12 +106,22 @@ def write_run_log(path: Path, logs) -> None:
 
 def _policy_mode(cfg: dict[str, Any]) -> str:
     policy = cfg.get("policy", {}) or {}
+    print(f"[run_batch] policy.mode = {policy.get('mode')}")
     return str(policy.get("mode", "heuristic")).strip().lower()
 
 
 def main() -> None:
     cfg_path = Path("configs/experiment_baseline.json")
     cfg = load_config(cfg_path)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("outputs/run_batch.log", mode="w"),
+        ],
+        force=True,
+    )
 
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
@@ -130,8 +141,8 @@ def main() -> None:
         if "model" not in llm_cfg:
             raise ValueError("policy.llm.model is required when policy.mode='llm'")
 
-        client = OpenAICompactClient(
-            base_url=(llm_cfg.get("policy.llm.model is required when policy.mode='llm'")),
+        client = OpenAICompatClient(
+            base_url=(llm_cfg.get("base_url") or "http://localhost:1234/v1"),
             model=str(llm_cfg["model"]),
             api_key=llm_cfg.get("api_key"),
             temperature=float(llm_cfg.get("temperature", 0.0)),
@@ -144,6 +155,7 @@ def main() -> None:
             timeout_s=float(llm_cfg.get("timeout_s", 10.0)),
             fallback=HeuristicDecider(),
         )
+
     elif mode == "heuristic":
         decider = HeuristicDecider()
     else:

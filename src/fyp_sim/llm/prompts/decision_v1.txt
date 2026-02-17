@@ -24,4 +24,10 @@ Video:
 - duration_s: {video.duration_s}
 - tags: {video.tags}
 
+OUTPUT RULES (STRICT):
+- Return ONLY a single JSON object.
+- Do NOT wrap in ``` or ```json fences.
+- Do NOT include any explanation outside the JSON.
+- The first character of your response must be {{ and the last must be }}.
+
 Now decide the next action for this user on this video and return JSON.

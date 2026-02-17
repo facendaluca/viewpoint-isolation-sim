@@ -69,6 +69,14 @@ class StepLog:
     vii_t: float
     vii_cum: float
 
+    # Policy/LLM metadata
+    policy_mode: str = "heuristic"
+    llm_prompt_id: str = ""
+    llm_valid: bool = True
+    llm_fallback_reason: str = ""
+    llm_action: str = ""
+    llm_confidence: float | None = None
+
 
 def choose_video_max_interest(user: User, pool: list[Video]) -> Video:
     """Deterministic baseline: always choose the most 'interesting' video.
@@ -154,12 +162,22 @@ def run_simulation(
     for t in range(steps):
         # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
         v = chooser(user, video_pool, rng, top_k=top_k, alpha=alpha)
-        action = decide_action(user, v)
+        action = decider.decide_next_action(user, v)
         wt = watch_time_fn(user, v, rng)
 
         vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
         # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
         vii_cum = running_mean(vii_cum, t, vii_t)
+
+        # Log policy/LLM metadata
+        meta = getattr(decider, "last_meta", None)
+
+        policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
+        llm_prompt_id = getattr(meta, "prompt_id", "") or ""
+        llm_valid = bool(getattr(meta, "valid", True)) if meta else True
+        llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
+        llm_action = getattr(meta, "llm_action", "") or ""
+        llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
 
         logs.append(
             StepLog(
@@ -170,6 +188,12 @@ def run_simulation(
                 interest=interest_score(user, v),
                 vii_t=vii_t,
                 vii_cum=vii_cum,
+                policy_mode=policy_mode,
+                llm_prompt_id=llm_prompt_id,
+                llm_valid=llm_valid,
+                llm_fallback_reason=llm_fallback_reason,
+                llm_action=llm_action,
+                llm_confidence=llm_confidence,
             )
         )
 

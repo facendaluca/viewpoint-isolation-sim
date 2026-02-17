@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.agents import HeuristicDecider, LLMDecider
-from fyp_sim.agents.clients import OpenAICompactClient
+from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
@@ -92,8 +92,8 @@ def main() -> None:
         if "model" not in llm_cfg:
             raise ValueError("policy.llm.model is required when policy.mode='llm'")
 
-        client = OpenAICompactClient(
-            base_url=str(llm_cfg.get("base_url", "http://localhost:1234/v1")),
+        client = OpenAICompatClient(
+            base_url=str(llm_cfg.get("base_url") or "http://localhost:1234/v1"),
             model=str(llm_cfg["model"]),
             api_key=str(llm_cfg.get("api_key")),
             temperature=float(llm_cfg.get("temperature", 0.0)),

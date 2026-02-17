@@ -52,6 +52,10 @@ def test_llm_valid_then_fallback_on_invalid_output():
         fallback=FixedFallback(UserAction.AVOID),
     )
     assert decider_valid.decide_next_action(user, video) == UserAction.WATCH
+    assert decider_valid.last_meta.valid is True
+    assert decider_valid.last_meta.policy_mode == "llm"
+    assert decider_valid.last_meta.llm_action == "Watch"
+    assert decider_valid.last_meta.llm_confidence == 0.9
 
     # 2) Invalid LLM output -> falls back
     invalid_client = FakeClient(output="not json at all")
@@ -62,3 +66,5 @@ def test_llm_valid_then_fallback_on_invalid_output():
         fallback=FixedFallback(UserAction.SAMPLE),
     )
     assert decider_invalid.decide_next_action(user, video) == UserAction.SAMPLE
+    assert decider_invalid.last_meta.valid is False
+    assert decider_invalid.last_meta.fallback_reason == "invalid_output"
