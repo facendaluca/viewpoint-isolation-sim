@@ -19,8 +19,9 @@ from typing import Protocol
 
 from fyp_sim.agents import ActionDecider, HeuristicDecider
 from fyp_sim.engagement import watch_time_seconds
+from fyp_sim.interests import update_interest_vector
 from fyp_sim.metrics import running_mean, viewpoint_distance
-from fyp_sim.models import User, Video
+from fyp_sim.models import User, UserAction, Video
 from fyp_sim.policy import decide_action, interest_score
 
 
@@ -68,6 +69,8 @@ class StepLog:
     interest: float
     vii_t: float
     vii_cum: float
+    topic_interest: float
+    interest_keys: int
 
     # Policy/LLM metadata
     policy_mode: str = "heuristic"
@@ -142,6 +145,12 @@ def run_simulation(
     chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
     decider: ActionDecider | None = None,
+    enable_interest_updates: bool = False,
+    interest_topic_alpha: float = 0.10,
+    interest_tag_alpha: float = 0.05,
+    interest_decay: float = 0.02,
+    interest_normalise: bool = False,
+    interest_prune_below: float = 0.001,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
     if steps <= 0:
@@ -165,9 +174,23 @@ def run_simulation(
         action = decider.decide_next_action(user, v)
         wt = watch_time_fn(user, v, rng)
 
+        if enable_interest_updates and action == UserAction.WATCH:
+            update_interest_vector(
+                user=user,
+                video=v,
+                watch_time_s=wt,
+                topic_alpha=interest_topic_alpha,
+                tag_alpha=interest_tag_alpha,
+                decay=interest_decay,
+                normalise=interest_normalise,
+                prune_below=interest_prune_below,
+            )
+
         vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
         # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
         vii_cum = running_mean(vii_cum, t, vii_t)
+        topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
+        interest_keys = len(user.interest_vector)
 
         # Log policy/LLM metadata
         meta = getattr(decider, "last_meta", None)
@@ -194,6 +217,8 @@ def run_simulation(
                 llm_fallback_reason=llm_fallback_reason,
                 llm_action=llm_action,
                 llm_confidence=llm_confidence,
+                topic_interest=topic_interest,
+                interest_keys=interest_keys,
             )
         )
 
