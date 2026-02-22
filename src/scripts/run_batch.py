@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
 import random
 from pathlib import Path
 from typing import Any
 
-from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.agents.clients import OpenAICompatClient
+from fyp_sim.agents.deciders import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
@@ -64,6 +63,12 @@ def build_user(cfg: dict[str, Any]) -> User:
     )
 
 
+def _policy_mode(cfg: dict[str, Any]) -> str:
+    policy = cfg.get("policy", {}) or {}
+    mode = policy.get("mode", "heuristic")
+    return str(mode).strip().lower()
+
+
 def write_run_log(path: Path, logs) -> None:
     """Write per-step logs for one seed to CSV. (generated artifacts, gitignored)"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -84,26 +89,11 @@ def write_run_log(path: Path, logs) -> None:
             )
 
 
-def _policy_mode(cfg: dict[str, Any]) -> str:
-    policy = cfg.get("policy", {}) or {}
-    print(f"[run_batch] policy.mode = {policy.get('mode')}")
-    return str(policy.get("mode", "heuristic")).strip().lower()
-
-
 def main() -> None:
     import sys
 
     cfg_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("configs/experiment_baseline.json")
     cfg = load_config(cfg_path)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler("outputs/run_batch.log", mode="w"),
-        ],
-        force=True,
-    )
 
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
@@ -164,6 +154,12 @@ def main() -> None:
             top_k=top_k,
             alpha=alpha,
             decider=decider,
+            enable_interest_updates=bool(cfg.get("enable_interest_updates", False)),
+            interest_topic_alpha=float(cfg.get("interest_topic_alpha", 0.10)),
+            interest_tag_alpha=float(cfg.get("interest_tag_alpha", 0.05)),
+            interest_decay=float(cfg.get("interest_decay", 0.02)),
+            interest_normalise=bool(cfg.get("interest_normalise", False)),
+            interest_prune_below=float(cfg.get("interest_prune_below", 0.001)),
         )
 
         # Per-run logs are generated artifacts (gitignored) for inspection/debugging.
