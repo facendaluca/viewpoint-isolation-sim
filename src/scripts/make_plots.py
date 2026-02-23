@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
+
+from fyp_sim.plotting import heatmap
 
 ## Helper functions
 
@@ -22,6 +24,19 @@ def maybe_plot(name: str, fn, *, enabled: bool = True) -> None:
         print(f"Wrote {name}")
     except FileNotFoundError as e:
         print(f"Skipping {name} (missing input): {e}")
+
+
+def _first_seed_run_log(run_dir: Path) -> Path:
+    seeds_dir = run_dir / "seeds"
+    if not seeds_dir.exists():
+        raise FileNotFoundError(f"Expected seeds/ under run_dir: {run_dir}")
+    seeds_dir = sorted([p for p in seeds_dir.iterdir() if p.is_dir()])
+    if not seeds_dir:
+        raise FileNotFoundError(f"No seed directories found under: {seeds_dir}")
+    run_log = seeds_dir[0] / "run_log.csv"
+    if not run_log.exists():
+        raise FileNotFoundError(f"Expected run_log.csv at: {run_log}")
+    return run_log
 
 
 ## Plotting functions
@@ -83,54 +98,64 @@ def plot_interest_drift_vs_vii(*, run_log_path: Path, out_dir: Path) -> None:
     fig.savefig(out_dir / "interest_drift_vs_vii.png", dpi=200)
     plt.close(fig)
 
-
-def heatmap(
-    df: pd.DataFrame,
-    *,
-    value: str,
-    out_path: Path,
-    title: str,
-) -> None:
-    pivot = df.pivot(index="top_k", columns="alpha", values=value).sort_index()
-    fig, ax = plt.subplots()
-    sns.heatmap(
-        pivot,
-        ax=ax,
-        annot=True,
-        fmt=".3f",
-        cmap="viridis",
-        cbar=True,
-    )
-    ax.set_title(title)
-    ax.set_xlabel("alpha")
-    ax.set_ylabel("top_k")
-    fig.tight_layout()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=200)
-    plt.close(fig)
+    # TODO: add helper that allows run root or date folder that sorts for the most recent run
 
 
 def main() -> None:
-    out_dir = Path("outputs/plots")
-    ensure_dir(out_dir)
-
-    maybe_plot(
-        "sweep heatmaps",
-        lambda: plot_sweep_heatmaps(
-            sweep_path=Path("results/sweep_summary.csv"),
-            out_dir=out_dir,
-        ),
+    p = argparse.ArgumentParser(description="Generate plots from legacy paths or run directories.")
+    p.add_argument("--run-dir", type=Path, default=None, help="Run directory (batch/sim).")
+    p.add_argument("--sweep-dir", type=Path, default=None, help="Sweep run directory.")
+    p.add_argument(
+        "--legacy", action="store_true", help="Use legacy paths (default if no dirs provided)."
     )
+    args = p.parse_args()
 
-    maybe_plot(
-        "interest drift vs vii",
-        lambda: plot_interest_drift_vs_vii(
-            run_log_path=Path("outputs/run_log.csv"),
-            out_dir=out_dir,
-        ),
-    )
+    use_legacy = args.legacy or (args.run_dir is None and args.sweep_dir is None)
 
-    print(f"Wrote plots to: {out_dir}")
+    if use_legacy:
+        out_dir = Path("outputs/plots")
+        ensure_dir(out_dir)
+
+        maybe_plot(
+            "sweep heatmaps",
+            lambda: plot_sweep_heatmaps(sweep_path=("results/sweep_summary.csv"), out_dir=out_dir),
+        )
+
+        maybe_plot(
+            "interest drift vs vii",
+            lambda: plot_interest_drift_vs_vii(
+                run_log_path=("results/run_log.csv"), out_dir=out_dir
+            ),
+        )
+
+        print(f"Wrote plots to: {out_dir}")
+        return
+
+    # New convention: write plots inside the run directory
+
+    if args.run_dir is not None:
+        out_dir = args.run_dir / "plots"
+        ensure_dir(out_dir)
+        run_log_path = _first_seed_run_log(args.run_dir)
+
+        maybe_plot(
+            "interest drift vs vii",
+            lambda: plot_interest_drift_vs_vii(run_log_path=run_log_path, out_dir=out_dir),
+        )
+        print(f"Wrote plots to: {out_dir}")
+        return
+
+    if args.sweep_dir is not None:
+        out_dir = args.sweep_dir / "plots"
+        ensure_dir(out_dir)
+        sweep_path = args.sweep_dir / "summary.csv"
+
+        maybe_plot(
+            "sweep heatmaps",
+            lambda: plot_sweep_heatmaps(sweep_path=sweep_path, out_dir=out_dir),
+        )
+        print(f"Wrote plots to: {out_dir}")
+        return
 
 
 if __name__ == "__main__":
