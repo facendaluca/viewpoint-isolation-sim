@@ -1,16 +1,20 @@
 """
 Batch experiment runner (seeds-only).
 
-Reads a single experiment config from 'configs/experiment_baseline.json, then:
-    - runs one simulation per seed (deterministic per seed),
-    - writes per-run logs to 'outputs/runs/run_seed_<seed>.csv' (generated artifacts not commited),
-    - writes a compact summary to 'results/summary.csv' (tracked).
+Default (new convention):
+    outputs/runs/YYYYMMDD/HHMMSSZ_<mode>_<hash8>/
+        manifest.json
+        summary.csv
+        seeds/s00042/run_log.csv
 
-This script is intentionally simple and no parameter sweeps yet (added in later scripts).
+Legacy (--legacy):
+    outputs/runs/run_seed_<seed>.csv
+    results/summary.csv
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import random
@@ -20,6 +24,7 @@ from typing import Any
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.agents.deciders import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
+from fyp_sim.artefacts import create_run_artefacts
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -38,10 +43,7 @@ def phenotype_from_str(s: str) -> UserPhenotype:
 
 
 def load_config(path: Path) -> dict[str, Any]:
-    """Load experiment configuration JSON.
-
-    Expected keys: steps, top_k, alpha, seeds, user, video_pool.
-    """
+    """Load experiment configuration JSON."""
     with path.open("r") as f:
         return json.load(f)
 
@@ -70,11 +72,22 @@ def _policy_mode(cfg: dict[str, Any]) -> str:
 
 
 def write_run_log(path: Path, logs) -> None:
-    """Write per-step logs for one seed to CSV. (generated artifacts, gitignored)"""
+    """Write per-step logs for one seed to CSV. (generated artefacts, gitignored)"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["t", "video_id", "action", "watch_time_s", "interest", "vii_t", "vii_cum"])
+        w.writerow(
+            [
+                "t",
+                "video_id",
+                "action",
+                "watch_time_s",
+                "interest",
+                "topic_interest",
+                "vii_t",
+                "vii_cum",
+            ]
+        )
         for row in logs:
             w.writerow(
                 [
@@ -83,6 +96,7 @@ def write_run_log(path: Path, logs) -> None:
                     row.action,
                     row.watch_time_s,
                     f"{row.interest:.4f}",
+                    f"{getattr(row, 'topic_interest', 0.0):.4f}",
                     f"{row.vii_t:.4f}",
                     f"{row.vii_cum:.4f}",
                 ]
@@ -90,9 +104,12 @@ def write_run_log(path: Path, logs) -> None:
 
 
 def main() -> None:
-    import sys
+    p = argparse.ArgumentParser(description="Run a seed sweep for a single experiment config.")
+    p.add_argument("config", nargs="?", type=Path, default=Path("configs/experiment_baseline.json"))
+    p.add_argument("--legacy", action="store_true", help="Write outputs to legacy locations.")
+    args = p.parse_args()
 
-    cfg_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("configs/experiment_baseline.json")
+    cfg_path = args.config
     cfg = load_config(cfg_path)
 
     steps = int(cfg["steps"])
@@ -103,8 +120,6 @@ def main() -> None:
     seeds = [int(x) for x in cfg["seeds"]]
 
     user = build_user(cfg)
-
-    # Use the shared corpus builder
     pool = build_corpus(cfg)
 
     mode = _policy_mode(cfg)
@@ -122,7 +137,6 @@ def main() -> None:
             temperature=float(llm_cfg.get("temperature", 0.0)),
             max_tokens=llm_cfg.get("max_tokens"),
         )
-        print(f"DEBUG: Using base_url {client.base_url} model {client.model}")
 
         decider = LLMDecider(
             prompt_id=str(llm_cfg.get("prompt_id", "decision_v1")),
@@ -130,20 +144,30 @@ def main() -> None:
             timeout_s=float(llm_cfg.get("timeout_s", 10.0)),
             fallback=HeuristicDecider(),
         )
-
     elif mode == "heuristic":
         decider = HeuristicDecider()
     else:
         raise ValueError("policy.mode must be 'heuristic' or 'llm'")
 
-    outputs_dir = Path("outputs") / "runs"
-    results_dir = Path("results")
-    results_dir.mkdir(exist_ok=True)
-    summary_path = results_dir / "summary.csv"
+    # Legacy paths (kept for compatibility)
+    legacy_outputs_dir = Path("outputs") / "runs"
+    legacy_results_dir = Path("results")
+    legacy_results_dir.mkdir(exist_ok=True)
+    legacy_summary_path = legacy_results_dir / "summary.csv"
+
+    # New run folder (default)
+    artefacts = None
+    if not args.legacy:
+        artefacts = create_run_artefacts(
+            cfg=cfg,
+            cfg_path=cfg_path,
+            mode=mode,
+            seeds=seeds,
+            outputs_root=Path("outputs/runs"),
+        )
 
     rows: list[dict[str, Any]] = []
 
-    # Reproducibility: each seed produces a deterministic run given fixed config + code version.
     for seed in seeds:
         rng = random.Random(seed)
         logs = run_simulation(
@@ -162,10 +186,13 @@ def main() -> None:
             interest_prune_below=float(cfg.get("interest_prune_below", 0.001)),
         )
 
-        # Per-run logs are generated artifacts (gitignored) for inspection/debugging.
-        write_run_log(outputs_dir / f"run_seed_{seed}.csv", logs)
+        if args.legacy:
+            write_run_log(legacy_outputs_dir / f"run_seed_{seed}.csv", logs)
+        else:
+            assert artefacts is not None
+            seed_dir = artefacts.seeds_dir / f"s{seed:05d}"
+            write_run_log(seed_dir / "run_log.csv", logs)
 
-        # Summary row (tracked)
         s = summarise_logs(
             logs,
             lock_in_threshold=lock_in_threshold,
@@ -184,13 +211,21 @@ def main() -> None:
         )
 
     fieldnames = list(rows[0].keys())
+    summary_path = legacy_summary_path if args.legacy else artefacts.summary_path  # type: ignore[union-attr]
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+
     with summary_path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(rows)
 
-    print(f"Wrote per-run logs to: {outputs_dir}")
-    print(f"Wrote summary to: {summary_path}")
+    if args.legacy:
+        print(f"Wrote per-run logs to: {legacy_outputs_dir}")
+        print(f"Wrote summary to: {summary_path}")
+    else:
+        assert artefacts is not None
+        print(f"Wrote run directory to: {artefacts.root_dir}")
+        print(f"Wrote summary to: {summary_path}")
 
 
 if __name__ == "__main__":
