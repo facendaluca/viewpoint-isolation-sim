@@ -57,7 +57,17 @@ def main() -> None:
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
 
-    user = build_user(cfg)
+    # Drift config (backwards compatible defaults)
+    enable_viewpoint_drift = bool(cfg.get("enable_viewpoint_drift", False))
+    viewpoint_drift_rate = float(cfg.get("viewpoint_drift_rate", 0.0))
+    drift_active = enable_viewpoint_drift and viewpoint_drift_rate > 0.0
+
+    enable_interest_updates = bool(cfg.get("enable_interest_updates", False))
+
+    # If we mutate user state, rebuild per seed to avoid cross-seed leakage
+    mutates_user = drift_active or enable_interest_updates
+
+    base_user = build_user(cfg)
     pool = build_corpus(cfg)
 
     legacy_results_dir = Path("results")
@@ -82,6 +92,9 @@ def main() -> None:
 
             for seed in seeds:
                 rng = random.Random(seed)
+
+                user = base_user.clone() if mutates_user else base_user
+
                 logs = run_simulation(
                     user=user,
                     video_pool=pool,
@@ -95,6 +108,8 @@ def main() -> None:
                     interest_decay=float(cfg.get("interest_decay", 0.02)),
                     interest_normalise=bool(cfg.get("interest_normalise", False)),
                     interest_prune_below=float(cfg.get("interest_prune_below", 0.001)),
+                    enable_viewpoint_drift=drift_active,
+                    viewpoint_drift_rate=viewpoint_drift_rate,
                 )
                 s = summarise_logs(
                     logs,

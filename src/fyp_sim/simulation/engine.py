@@ -78,6 +78,7 @@ class StepLog:
     # Viewpoint drift logging (pre/post update)
     user_viewpoint_pre: float = 0.0
     user_viewpoint_post: float = 0.0
+    video_viewpoint_score: float = 0.0
 
     # Policy/LLM metadata
     policy_mode: str = "heuristic"
@@ -245,6 +246,7 @@ def run_simulation(
                 interest_keys=interest_keys,
                 user_viewpoint_pre=user_viewpoint_pre,
                 user_viewpoint_post=user_viewpoint_post,
+                video_viewpoint_score=float(v.viewpoint_score),
             )
         )
 

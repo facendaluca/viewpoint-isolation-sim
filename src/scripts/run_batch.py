@@ -71,36 +71,42 @@ def _policy_mode(cfg: dict[str, Any]) -> str:
     return str(mode).strip().lower()
 
 
-def write_run_log(path: Path, logs) -> None:
+def write_run_log(path: Path, logs, *, include_viewpoint: bool = False) -> None:
     """Write per-step logs for one seed to CSV. (generated artefacts, gitignored)"""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(
-            [
-                "t",
-                "video_id",
-                "action",
-                "watch_time_s",
-                "interest",
-                "topic_interest",
-                "vii_t",
-                "vii_cum",
-            ]
-        )
+        header = [
+            "t",
+            "video_id",
+            "action",
+            "watch_time_s",
+            "interest",
+            "topic_interest",
+            "vii_t",
+            "vii_cum",
+        ]
+        if include_viewpoint:
+            header += ["user_viewpoint_pre", "user_viewpoint_post", "video_viewpoint_score"]
+        w.writerow(header)
         for row in logs:
-            w.writerow(
-                [
-                    row.t,
-                    row.video_id,
-                    row.action,
-                    row.watch_time_s,
-                    f"{row.interest:.4f}",
-                    f"{getattr(row, 'topic_interest', 0.0):.4f}",
-                    f"{row.vii_t:.4f}",
-                    f"{row.vii_cum:.4f}",
+            base = [
+                row.t,
+                row.video_id,
+                row.action,
+                row.watch_time_s,
+                f"{row.interest:.4f}",
+                f"{getattr(row, 'topic_interest', 0.0):.4f}",
+                f"{row.vii_t:.4f}",
+                f"{row.vii_cum:.4f}",
+            ]
+            if include_viewpoint:
+                base += [
+                    f"{row.user_viewpoint_pre:.4f}",
+                    f"{row.user_viewpoint_post:.4f}",
+                    f"{row.video_viewpoint_score:.4f}",
                 ]
-            )
+            w.writerow(base)
 
 
 def main() -> None:
@@ -119,7 +125,17 @@ def main() -> None:
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
 
-    user = build_user(cfg)
+    enable_interest_updates = bool(cfg.get("enable_interest_updates", False))
+
+    # Drift config (backwards compatible defaults)
+    enable_viewpoint_drift = bool(cfg.get("enable_viewpoint_drift", False))
+    viewpoint_drift_rate = float(cfg.get("viewpoint_drift_rate", 0.0))
+
+    drift_active = enable_viewpoint_drift and viewpoint_drift_rate > 0.0
+    # If we mutate user state, rebuild per seed to avoid cross-seed leakage
+    mutates_user = drift_active or enable_interest_updates
+
+    base_user = build_user(cfg)
     pool = build_corpus(cfg)
 
     mode = _policy_mode(cfg)
@@ -170,6 +186,7 @@ def main() -> None:
 
     for seed in seeds:
         rng = random.Random(seed)
+        user = build_user(cfg) if mutates_user else base_user
         logs = run_simulation(
             user=user,
             video_pool=pool,
@@ -184,31 +201,37 @@ def main() -> None:
             interest_decay=float(cfg.get("interest_decay", 0.02)),
             interest_normalise=bool(cfg.get("interest_normalise", False)),
             interest_prune_below=float(cfg.get("interest_prune_below", 0.001)),
+            enable_viewpoint_drift=enable_viewpoint_drift,
+            viewpoint_drift_rate=viewpoint_drift_rate,
         )
 
         if args.legacy:
-            write_run_log(legacy_outputs_dir / f"run_seed_{seed}.csv", logs)
+            write_run_log(
+                legacy_outputs_dir / f"run_seed_{seed}.csv", logs, include_viewpoint=drift_active
+            )
         else:
             assert artefacts is not None
             seed_dir = artefacts.seeds_dir / f"s{seed:05d}"
-            write_run_log(seed_dir / "run_log.csv", logs)
+            write_run_log(seed_dir / "run_log.csv", logs, include_viewpoint=drift_active)
 
         s = summarise_logs(
             logs,
             lock_in_threshold=lock_in_threshold,
             persistence_window=persistence_window,
         )
-        rows.append(
-            {
-                "seed": seed,
-                "steps": steps,
-                "top_k": top_k,
-                "alpha": alpha,
-                "lock_in_threshold": lock_in_threshold,
-                "persistence_window": persistence_window,
-                **s,
-            }
-        )
+        row = {
+            "seed": seed,
+            "steps": steps,
+            "top_k": top_k,
+            "alpha": alpha,
+            "lock_in_threshold": lock_in_threshold,
+            "persistence_window": persistence_window,
+            **s,
+        }
+        if drift_active:
+            row["viewpoint_drift_rate"] = viewpoint_drift_rate
+
+        rows.append(row)
 
     fieldnames = list(rows[0].keys())
     summary_path = legacy_summary_path if args.legacy else artefacts.summary_path  # type: ignore[union-attr]
