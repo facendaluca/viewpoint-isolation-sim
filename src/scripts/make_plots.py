@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from fyp_sim.plotting import heatmap
+from fyp_sim.plotting.drift_compare import make_drift_compare_plots
 
 ## Helper functions
 
@@ -108,7 +109,31 @@ def main() -> None:
     p.add_argument(
         "--legacy", action="store_true", help="Use legacy paths (default if no dirs provided)."
     )
+    p.add_argument(
+        "--compare-run-dirs",
+        nargs=2,
+        type=Path,
+        default=None,
+        metavar=("BASELINE_RUN_DIR", "DRIFT_RUN_DIR"),
+        help="Generate baseline vs drift comparison plots into DRIFT_RUN_DIR/plots/compare_baseline_vs_drift",
+    )
     args = p.parse_args()
+
+    if args.compare_run_dirs is not None:
+        baseline_run_dir, drift_run_dir = args.compare_run_dirs
+        out_dir = drift_run_dir / "plots" / "compare_baseline_vs_drift"
+        ensure_dir(out_dir)
+
+        maybe_plot(
+            "baseline vs drift comparison",
+            lambda: make_drift_compare_plots(
+                baseline_run_dir=baseline_run_dir,
+                drift_run_dir=drift_run_dir,
+                out_dir=out_dir,
+            ),
+        )
+        print(f"Wrote plots to: {out_dir}")
+        return
 
     use_legacy = args.legacy or (args.run_dir is None and args.sweep_dir is None)
 

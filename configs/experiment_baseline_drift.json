@@ -1,0 +1,117 @@
+{
+    "policy": {
+        "mode": "heuristic",
+        "llm": {
+            "base_url": "http://localhost:1234/v1",
+            "model": "llama-3.2-3b-instruct",
+            "prompt_id": "decision_v1",
+            "timeout_s": 15,
+            "temperature": 0.0,
+            "max_tokens": 200
+        }
+    },
+    "steps": 10,
+    "top_k": 2,
+    "alpha": 0.3,
+    "lock_in_threshold": 0.2,
+    "persistence_window": 10,
+    "enable_interest_updates": false,
+    "interest_topic_alpha": 0.10,
+    "interest_tag_alpha": 0.05,
+    "interest_decay": 0.02,
+    "interest_normalise": false,
+    "interest_prune_below": 0.001,
+    "enable_viewpoint_drift": true,
+    "viewpoint_drift_rate": 0.2,
+    "seeds": [
+        0,
+        1,
+        2,
+        3
+    ],
+    "user": {
+        "phenotype": "sampler",
+        "viewpoint_score": 0.4,
+        "sentiment_threshold": -0.2,
+        "interest_vector": {
+            "politics": 0.2,
+            "meme": 0.9,
+            "sports": 0.1,
+            "sleep": 0.3
+        }
+    },
+    "video_pool": [
+        {
+            "video_id": 1,
+            "topic_category": "politics",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme"
+            ]
+        },
+        {
+            "video_id": 4,
+            "topic_category": "politics",
+            "viewpoint_score": 0.0,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme"
+            ]
+        },
+        {
+            "video_id": 2,
+            "topic_category": "sports",
+            "viewpoint_score": 0.2,
+            "sentiment_score": 0.1,
+            "duration_s": 20,
+            "tags": [
+                "football"
+            ]
+        },
+        {
+            "video_id": 3,
+            "topic_category": "health_wellness",
+            "viewpoint_score": 0.5,
+            "sentiment_score": 0.2,
+            "duration_s": 30,
+            "tags": [
+                "sleep"
+            ]
+        },
+        {
+            "video_id": 5,
+            "topic_category": "politics",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "meme",
+                "satire",
+                "debate",
+                "podcast",
+                "news",
+                "activism",
+                "standup",
+                "debate",
+                "podcast"
+            ]
+        },
+        {
+            "video_id": 6,
+            "topic_category": "international_news",
+            "viewpoint_score": 0.8,
+            "sentiment_score": 0.0,
+            "duration_s": 25,
+            "tags": [
+                "news",
+                "travel",
+                "activism",
+                "podcast",
+                "debate"
+            ]
+        }
+    ]
+}
