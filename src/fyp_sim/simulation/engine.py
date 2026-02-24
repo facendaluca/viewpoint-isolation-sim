@@ -36,7 +36,7 @@ def engagement_proxy(action, video: Video, *, max_duration: int) -> float:
         - Sample -> small constant
         - Watch -> prefers longer videos (more engagement opportunity)
 
-    This makes alpha more meaningful by preventing WATCH from always being the same value.
+    This makes rank_alpha more meaningful by preventing WATCH from always being the same value.
     """
     a = action.value.lower()
     if a == "avoid":
@@ -50,16 +50,16 @@ def engagement_proxy(action, video: Video, *, max_duration: int) -> float:
     return 0.6 + 0.4 * (video.duration_s / max_duration)
 
 
-def video_score(user: User, v: Video, *, alpha: float, max_duration: int) -> float:
+def video_score(user: User, v: Video, *, rank_alpha: float, max_duration: int) -> float:
     """Candidate ranking score: convex combo of interest and engagement proxy.
 
-    alpha = 0.0 -> interest only
-    alpha = 1.0 -> engagement proxy only
+    rank_alpha = 0.0 -> interest only
+    rank_alpha = 1.0 -> engagement proxy only
     """
     a = decide_action(user, v)
     e = engagement_proxy(a, v, max_duration=max_duration)
     i = interest_score(user, v)
-    return (1.0 - alpha) * i + alpha * e
+    return (1.0 - rank_alpha) * i + rank_alpha * e
 
 
 # Step-level log row written out by scripts (e.g., CSV) for analysis and reporting.
@@ -103,7 +103,7 @@ def choose_video_weighted_top_k(
     rng,
     *,
     top_k: int = 3,
-    alpha: float = 0.3,
+    rank_alpha: float = 0.3,
 ) -> Video:
     """Rank videos by score, take top_k, then choose using weighted randomness.
 
@@ -115,7 +115,7 @@ def choose_video_weighted_top_k(
 
     max_d = max(v.duration_s for v in pool) if pool else 0
 
-    scored = [(video_score(user, v, alpha=alpha, max_duration=max_d), v) for v in pool]
+    scored = [(video_score(user, v, rank_alpha=rank_alpha, max_duration=max_d), v) for v in pool]
     # Stable ordering: score desc, then video_id asc (prevents randomness in ties)
     scored.sort(key=lambda x: (-x[0], x[1].video_id))
 
@@ -138,8 +138,23 @@ class ChooserFn(Protocol):
         rng,
         *,
         top_k: int,
-        alpha: float,
+        rank_alpha: float,
     ) -> Video: ...
+
+
+def _resolve_drift_alpha(*, drift_alpha: float | None, viewpoint_drift_rate: float) -> float:
+    """Resolve drift strength with backwards-compatible aliasing
+
+    New name: drift_alpha
+    Old name: viewpoint_drift_rate
+
+    Rules:
+        - drift_alpha wins if provided
+        - otherwise fall back to viewpoint_drift_rate
+    """
+    if drift_alpha is None:
+        return viewpoint_drift_rate
+    return drift_alpha
 
 
 def run_simulation(
@@ -149,7 +164,10 @@ def run_simulation(
     steps: int,
     rng,
     top_k: int = 3,
-    alpha: float = 0.3,
+    rank_alpha: float | None = None,
+    drift_alpha: float | None = None,
+    # Deprecated: keep only to fail fast if old callers still pass it
+    alpha: float | None = None,
     chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
     decider: ActionDecider | None = None,
@@ -163,16 +181,32 @@ def run_simulation(
     viewpoint_drift_rate: float = 0.0,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
+    if alpha is not None:
+        raise ValueError(
+            "Config/argument 'alpha' has been split. Use 'rank_alpha' for ranking and "
+            "'drift_alpha' or 'viewpoint_drift_rate' for viewpoint drift strength."
+        )
+    if rank_alpha is None:
+        raise ValueError(
+            "Missing required parameter 'rank_alpha'. "
+            "The old 'alpha' parameter has been removed/split."
+        )
+
     if steps <= 0:
         raise ValueError("steps must be > 0")
     if not video_pool:
         raise ValueError("video_pool must not be empty")
     if top_k <= 0:
         raise ValueError("top_k must be > 0")
-    if alpha < 0.0 or alpha > 1.0:
-        raise ValueError("alpha must be between 0.0 and 1.0")
-    if viewpoint_drift_rate < 0.0:
-        raise ValueError("viewpoint_drift_rate must be >= 0.0")
+    if rank_alpha < 0.0 or rank_alpha > 1.0:
+        raise ValueError("rank_alpha must be between 0.0 and 1.0")
+
+    resolved_drift_alpha = _resolve_drift_alpha(
+        drift_alpha=drift_alpha,
+        viewpoint_drift_rate=viewpoint_drift_rate,
+    )
+    if resolved_drift_alpha < 0.0:
+        raise ValueError("resolved_drift_alpha must be >= 0.0")
 
     if decider is None:
         decider = HeuristicDecider()
@@ -182,7 +216,7 @@ def run_simulation(
 
     for t in range(steps):
         # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
-        v = chooser(user, video_pool, rng, top_k=top_k, alpha=alpha)
+        v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
         action = decider.decide_next_action(user, v)
         wt = watch_time_fn(user, v, rng)
 

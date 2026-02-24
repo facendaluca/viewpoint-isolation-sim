@@ -22,15 +22,15 @@ def heatmap(
 
     Expects:
     - top_k (int)
-    - alpha (float)
+    - rank_alpha (float)
     - <value> (numeric)
     """
-    if "top_k" not in df.columns or "alpha" not in df.columns:
-        raise ValueError("df must contain columns: 'top_k and 'alpha'")
+    if "top_k" not in df.columns or "rank_alpha" not in df.columns:
+        raise ValueError("df must contain columns: 'top_k and 'rank_alpha'")
     if value not in df.columns:
         raise ValueError(f"df missing required column for heatmap value: {value!r}")
 
-    pivot = df.pivot(index="top_k", columns="alpha", values=value).sort_index()
+    pivot = df.pivot(index="top_k", columns="rank_alpha", values=value).sort_index()
 
     fig, ax = plt.subplots()
     sns.heatmap(
@@ -42,7 +42,7 @@ def heatmap(
         cbar=True,
     )
     ax.set_title(title)
-    ax.set_xlabel("alpha")
+    ax.set_xlabel("rank_alpha")
     ax.set_ylabel("top_k")
     fig.tight_layout()
 

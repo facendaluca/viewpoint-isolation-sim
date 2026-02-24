@@ -12,6 +12,7 @@ from typing import Any
 from fyp_sim.agents import HeuristicDecider, LLMDecider
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
+from fyp_sim.artefacts import _fail_fast_old_alpha
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.plotting import make_compare_plot
 from fyp_sim.simulation.engine import run_simulation
@@ -170,7 +171,8 @@ def _run_simulation_compat(
     steps: int,
     rng: random.Random,
     top_k: int,
-    alpha: float,
+    rank_alpha: float,
+    drift_alpha: float,
     decider: Any,
 ) -> list[Any]:
     """
@@ -183,7 +185,8 @@ def _run_simulation_compat(
         steps=steps,
         rng=rng,
         top_k=top_k,
-        alpha=alpha,
+        rank_alpha=rank_alpha,
+        drift_alpha=drift_alpha,
     )
     if "decider" in sig.parameters:
         kwargs["decider"] = decider
@@ -240,17 +243,19 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    _fail_fast_old_alpha(cfg, args.config)
 
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
-    alpha = float(cfg["alpha"])
+    rank_alpha = float(cfg["rank_alpha"])
+    drift_alpha = float(cfg.get("drift_alpha", cfg.get("viewpoint_drift_rate", 0.0)))
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
 
     print(
         f"[run_compare] config={args.config} "
-        f"steps={steps} top_k={top_k} alpha={alpha} "
+        f"steps={steps} top_k={top_k} rank_alpha={rank_alpha} drift_alpha={drift_alpha} "
         f"lock_in_threshold={lock_in_threshold} persistence_window={persistence_window} "
         f"seeds={seeds}"
     )
@@ -279,7 +284,8 @@ def main() -> None:
             "seeds": seeds,
             "steps": steps,
             "top_k": top_k,
-            "alpha": alpha,
+            "rank_alpha": rank_alpha,
+            "drift_alpha": drift_alpha,
         },
     )
 
@@ -299,7 +305,8 @@ def main() -> None:
                 steps=steps,
                 rng=rng,
                 top_k=top_k,
-                alpha=alpha,
+                rank_alpha=rank_alpha,
+                drift_alpha=drift_alpha,
                 decider=decider,
             )
 
@@ -321,7 +328,8 @@ def main() -> None:
                     "seed": seed,
                     "steps": steps,
                     "top_k": top_k,
-                    "alpha": alpha,
+                    "rank_alpha": rank_alpha,
+                    "drift_alpha": drift_alpha,
                     "lock_in_threshold": lock_in_threshold,
                     "persistence_window": persistence_window,
                     **s,

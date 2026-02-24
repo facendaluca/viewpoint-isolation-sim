@@ -11,7 +11,8 @@ def test_create_run_artefacrs_creates_expected_structure(tmp_path: Path) -> None
     cfg = {
         "steps": 10,
         "top_k": 3,
-        "alpha": 0.25,
+        "rank_alpha": 0.25,
+        "drift_alpha": 0.0,
         "enable_interest_updates": True,
         "interest_topic_alpha": 0.1,
         "interest_tag_alpha": 0.05,
@@ -41,3 +42,6 @@ def test_create_run_artefacrs_creates_expected_structure(tmp_path: Path) -> None
     assert manifest["mode"] == "heuristic"
     assert manifest["seeds"] == seeds
     assert "cfg_hash" in manifest
+    key_params = manifest["key_params"]
+    assert key_params["rank_alpha"] == 0.25
+    assert key_params["drift_alpha"] == 0.0

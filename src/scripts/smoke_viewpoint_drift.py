@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.agents.deciders import HeuristicDecider
+from fyp_sim.artefacts import _fail_fast_old_alpha
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -51,6 +52,7 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    _fail_fast_old_alpha(cfg, args.config)
     steps = int(cfg["steps"]) if args.steps is None else int(args.steps)
 
     user = build_user(cfg)
@@ -63,7 +65,8 @@ def main() -> None:
         steps=steps,
         rng=rng,
         top_k=int(cfg["top_k"]),
-        alpha=float(cfg["alpha"]),
+        rank_alpha=float(cfg["rank_alpha"]),
+        drift_alpha=float(cfg.get("drift_alpha", cfg.get("viewpoint_drift_rate", 0.0))),
         decider=HeuristicDecider(),
         enable_interest_updates=bool(cfg.get("enable_interest_updates", False)),
         interest_topic_alpha=float(cfg.get("interest_topic_alpha", 0.10)),

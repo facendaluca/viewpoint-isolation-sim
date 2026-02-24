@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.artefacts import create_run_artefacts
+from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -42,25 +42,27 @@ def build_user(cfg: dict[str, Any]) -> User:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Run a parameter sweep over (top_k, alpha).")
+    p = argparse.ArgumentParser(description="Run a parameter sweep over (top_k, rank_alpha).")
     p.add_argument("config", nargs="?", type=Path, default=Path("configs/experiment_sweep.json"))
     p.add_argument("--legacy", action="store_true", help="Write outputs to legacy locations.")
     args = p.parse_args()
 
     cfg_path = args.config
     cfg = load_config(cfg_path)
+    _fail_fast_old_alpha(cfg, cfg_path)
 
     steps = int(cfg["steps"])
     seeds = [int(x) for x in cfg["seeds"]]
-    alpha_grid = [float(x) for x in cfg["alpha_grid"]]
+    rank_alpha_grid = [float(x) for x in cfg["rank_alpha_grid"]]
     top_k_grid = [int(x) for x in cfg["top_k_grid"]]
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
 
     # Drift config (backwards compatible defaults)
     enable_viewpoint_drift = bool(cfg.get("enable_viewpoint_drift", False))
-    viewpoint_drift_rate = float(cfg.get("viewpoint_drift_rate", 0.0))
-    drift_active = enable_viewpoint_drift and viewpoint_drift_rate > 0.0
+    drift_alpha = float(cfg.get("drift_alpha", cfg.get("viewpoint_drift_rate", 0.0)))
+    viewpoint_drift_rate = drift_alpha
+    drift_active = enable_viewpoint_drift and drift_alpha > 0.0
 
     enable_interest_updates = bool(cfg.get("enable_interest_updates", False))
 
@@ -87,7 +89,7 @@ def main() -> None:
     rows: list[dict[str, Any]] = []
 
     for top_k in top_k_grid:
-        for alpha in alpha_grid:
+        for rank_alpha in rank_alpha_grid:
             per_seed: list[dict[str, float | int]] = []
 
             for seed in seeds:
@@ -101,7 +103,8 @@ def main() -> None:
                     steps=steps,
                     rng=rng,
                     top_k=top_k,
-                    alpha=alpha,
+                    rank_alpha=rank_alpha,
+                    drift_alpha=drift_alpha,
                     enable_interest_updates=bool(cfg.get("enable_interest_updates", False)),
                     interest_topic_alpha=float(cfg.get("interest_topic_alpha", 0.10)),
                     interest_tag_alpha=float(cfg.get("interest_tag_alpha", 0.05)),
@@ -120,7 +123,14 @@ def main() -> None:
                 per_seed.append(s)
 
             # mean/std across seeds for each metric
-            agg: dict[str, Any] = {"top_k": top_k, "alpha": alpha}
+            if args.legacy:
+                agg: dict[str, Any] = {"top_k": top_k, "alpha": rank_alpha}
+            else:
+                agg: dict[str, Any] = {
+                    "top_k": top_k,
+                    "rank_alpha": rank_alpha,
+                    "drift_alpha": drift_alpha,
+                }
             keys = [k for k in per_seed[0].keys() if k != "seed"]
             for k in keys:
                 vals = [float(d[k]) for d in per_seed]

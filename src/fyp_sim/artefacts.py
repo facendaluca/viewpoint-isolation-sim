@@ -33,6 +33,18 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _fail_fast_old_alpha(cfg: dict[str, Any], cfg_path: Path | None) -> None:
+    if "alpha" in cfg:
+        where = f" in {cfg_path}" if cfg_path is not None else ""
+        raise ValueError(
+            "Config key 'alpha' has been split to avoid ambiguity. "
+            f"Update your config{where} to use:\n"
+            "    - rank_alpha (ranking / exposure scoring)\n"
+            "    - drift_alpha (viewpoint drift strength; optional unless drift enabled)\n"
+            "If you previously used 'alpha' for ranking, rename it to 'rank_alpha'."
+        )
+
+
 def create_run_artefacts(
     cfg: dict[str, Any],
     cfg_path: Path | None,
@@ -48,6 +60,7 @@ def create_run_artefacts(
         - Simulation determinism is unchanged; run_id is unique per execution.
         - The date is a parent folder; run_id stays short.
     """
+    _fail_fast_old_alpha(cfg, cfg_path)
     ts = _utc_now()
     date_ymd = ts.strftime("%Y%m%d")
     time_hms = ts.strftime("%H%M%S")
@@ -68,7 +81,8 @@ def create_run_artefacts(
     key_params: dict[str, Any] = {
         "steps": cfg.get("steps"),
         "top_k": cfg.get("top_k"),
-        "alpha": cfg.get("alpha"),
+        "rank_alpha": cfg.get("rank_alpha"),
+        "drift_alpha": cfg.get("drift_alpha"),
         "enable_interest_updates": cfg.get("enable_interest_updates"),
         "interest_topic_alpha": cfg.get("interest_topic_alpha"),
         "interest_tag_alpha": cfg.get("interest_tag_alpha"),
