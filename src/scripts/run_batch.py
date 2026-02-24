@@ -24,7 +24,7 @@ from typing import Any
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.agents.deciders import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.artefacts import create_run_artefacts
+from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -118,9 +118,11 @@ def main() -> None:
     cfg_path = args.config
     cfg = load_config(cfg_path)
 
+    _fail_fast_old_alpha(cfg, cfg_path)
+
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
-    alpha = float(cfg["alpha"])
+    rank_alpha = float(cfg["rank_alpha"])
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
@@ -129,9 +131,10 @@ def main() -> None:
 
     # Drift config (backwards compatible defaults)
     enable_viewpoint_drift = bool(cfg.get("enable_viewpoint_drift", False))
-    viewpoint_drift_rate = float(cfg.get("viewpoint_drift_rate", 0.0))
+    drift_alpha = float(cfg.get("drift_alpha", cfg.get("viewpoint_drift_rate", 0.0)))
+    viewpoint_drift_rate = drift_alpha
 
-    drift_active = enable_viewpoint_drift and viewpoint_drift_rate > 0.0
+    drift_active = enable_viewpoint_drift and drift_alpha > 0.0
     # If we mutate user state, rebuild per seed to avoid cross-seed leakage
     mutates_user = drift_active or enable_interest_updates
 
@@ -193,7 +196,8 @@ def main() -> None:
             steps=steps,
             rng=rng,
             top_k=top_k,
-            alpha=alpha,
+            rank_alpha=rank_alpha,
+            drift_alpha=drift_alpha,
             decider=decider,
             enable_interest_updates=bool(cfg.get("enable_interest_updates", False)),
             interest_topic_alpha=float(cfg.get("interest_topic_alpha", 0.10)),
@@ -223,13 +227,12 @@ def main() -> None:
             "seed": seed,
             "steps": steps,
             "top_k": top_k,
-            "alpha": alpha,
+            "rank_alpha": rank_alpha,
+            "drift_alpha": drift_alpha,
             "lock_in_threshold": lock_in_threshold,
             "persistence_window": persistence_window,
             **s,
         }
-        if drift_active:
-            row["viewpoint_drift_rate"] = viewpoint_drift_rate
 
         rows.append(row)
 

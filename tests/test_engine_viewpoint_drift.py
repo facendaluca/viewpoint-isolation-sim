@@ -18,7 +18,7 @@ class DummyDecider:
         return self._action
 
 
-def chooser_first(user, pool, rng, *, top_k, alpha):
+def chooser_first(user, pool, rng, *, top_k, rank_alpha):
     return pool[0]
 
 
@@ -48,6 +48,7 @@ def test_viewpoint_drift_disabled_is_noop_and_logs_pre_post_equal(monkeypatch):
         watch_time_fn=watch_time_const,
         decider=DummyDecider(UserAction.WATCH),
         enable_viewpoint_drift=False,
+        rank_alpha=0.3,
         viewpoint_drift_rate=0.5,
     )
 
@@ -78,6 +79,7 @@ def test_viewpoint_drift_enabled_moves_toward_target_and_chains_state(monkeypatc
         chooser=chooser_first,
         watch_time_fn=watch_time_const,
         decider=DummyDecider(UserAction.WATCH),
+        rank_alpha=0.3,
         enable_viewpoint_drift=True,
         viewpoint_drift_rate=0.2,  # WATCH => k=0.2
     )
@@ -115,6 +117,7 @@ def test_viewpoint_drift_enabled_but_avoid_action_is_noop(monkeypatch):
         chooser=chooser_first,
         watch_time_fn=watch_time_const,
         decider=DummyDecider(UserAction.AVOID),
+        rank_alpha=0.3,
         enable_viewpoint_drift=True,
         viewpoint_drift_rate=0.8,
     )

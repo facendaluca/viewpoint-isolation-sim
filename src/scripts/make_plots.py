@@ -45,8 +45,12 @@ def _first_seed_run_log(run_dir: Path) -> Path:
 
 def plot_sweep_heatmaps(*, sweep_path: Path, out_dir: Path) -> None:
     df = pd.read_csv(sweep_path)
+    if "alpha" in df.columns and "rank_alpha" not in df.columns:
+        raise ValueError(
+            "Detected legacy 'alpha' column. Please regenerate outputs with new config schema or rename column manually."
+        )
     df["top_k"] = df["top_k"].astype(int)
-    df["alpha"] = df["alpha"].astype(float)
+    df["rank_alpha"] = df["rank_alpha"].astype(float)
 
     heatmap(
         df,
