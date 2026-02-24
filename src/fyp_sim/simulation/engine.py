@@ -12,6 +12,8 @@ At each timestep t:
 Design goal: keep the engine small and deterministic (given rng seed) so experiments are reproducible.
 """
 
+# TODO: Refactor the engine: move logging into a separate module
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from fyp_sim.interests import update_interest_vector
 from fyp_sim.metrics import running_mean, viewpoint_distance
 from fyp_sim.models import User, UserAction, Video
 from fyp_sim.policy import decide_action, interest_score
+from fyp_sim.simulation.viewpoint_drift import apply_viewpoint_drift
 
 
 def engagement_proxy(action, video: Video, *, max_duration: int) -> float:
@@ -71,6 +74,10 @@ class StepLog:
     vii_cum: float
     topic_interest: float
     interest_keys: int
+
+    # Viewpoint drift logging (pre/post update)
+    user_viewpoint_pre: float = 0.0
+    user_viewpoint_post: float = 0.0
 
     # Policy/LLM metadata
     policy_mode: str = "heuristic"
@@ -151,6 +158,8 @@ def run_simulation(
     interest_decay: float = 0.02,
     interest_normalise: bool = False,
     interest_prune_below: float = 0.001,
+    enable_viewpoint_drift: bool = False,
+    viewpoint_drift_rate: float = 0.0,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
     if steps <= 0:
@@ -161,6 +170,8 @@ def run_simulation(
         raise ValueError("top_k must be > 0")
     if alpha < 0.0 or alpha > 1.0:
         raise ValueError("alpha must be between 0.0 and 1.0")
+    if viewpoint_drift_rate < 0.0:
+        raise ValueError("viewpoint_drift_rate must be >= 0.0")
 
     if decider is None:
         decider = HeuristicDecider()
@@ -186,11 +197,24 @@ def run_simulation(
                 prune_below=interest_prune_below,
             )
 
+        user_viewpoint_pre = float(user.viewpoint_score)
+
         vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
         # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
         vii_cum = running_mean(vii_cum, t, vii_t)
         topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
         interest_keys = len(user.interest_vector)
+
+        # Optional viewpoint drift update happens after VII_t so baseline VII_t stays comparable.
+        if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
+            user.viewpoint_score = apply_viewpoint_drift(
+                user_viewpoint_pre,
+                v.viewpoint_score,
+                drift_rate=viewpoint_drift_rate,
+                action=action,
+            )
+
+        user_viewpoint_post = float(user.viewpoint_score)
 
         # Log policy/LLM metadata
         meta = getattr(decider, "last_meta", None)
@@ -219,6 +243,8 @@ def run_simulation(
                 llm_confidence=llm_confidence,
                 topic_interest=topic_interest,
                 interest_keys=interest_keys,
+                user_viewpoint_pre=user_viewpoint_pre,
+                user_viewpoint_post=user_viewpoint_post,
             )
         )
 
