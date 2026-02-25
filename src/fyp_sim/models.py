@@ -15,18 +15,28 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 
+class ConfigValidationError(ValueError):
+    """Raised when an experiment config violates required invariants."""
+
+
 def _validate_unit_interval(value: object, *, field: str, owner: str) -> None:
     """Fail fast if `value` is not a finite number in [0.0, 1.0]."""
     try:
         v = float(value)
     except (TypeError, ValueError) as e:
-        raise ValueError(f"{owner}.{field} must be a number in [0.0, 1.0]; got {value!r}") from e
+        raise ConfigValidationError(
+            f"{owner}.{field} must be a number in [0.0, 1.0]; got {value!r}"
+        ) from e
 
     if not math.isfinite(v):
-        raise ValueError(f"{owner}.{field} must be a finite float in [0.0, 1.0]; got {value!r}")
+        raise ConfigValidationError(
+            f"{owner}.{field} must be a finite float in [0.0, 1.0]; got {value!r}"
+        )
 
     if v < 0.0 or v > 1.0:
-        raise ValueError(f"{owner}.{field} out of range: {v!r} (expected 0.0 <= value <= 1.0)")
+        raise ConfigValidationError(
+            f"{owner}.{field} out of range: {v!r} (expected 0.0 <= value <= 1.0)"
+        )
 
 
 class UserPhenotype(StrEnum):

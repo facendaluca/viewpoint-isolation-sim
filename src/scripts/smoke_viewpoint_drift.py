@@ -8,6 +8,7 @@ from typing import Any
 
 from fyp_sim.agents.deciders import HeuristicDecider
 from fyp_sim.artefacts import _fail_fast_old_alpha
+from fyp_sim.cli import run_cli
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -106,4 +107,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)

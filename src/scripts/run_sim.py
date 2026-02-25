@@ -4,6 +4,7 @@ import csv
 import random
 from pathlib import Path
 
+from fyp_sim.cli import run_cli
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import run_simulation
 
@@ -75,4 +76,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)
