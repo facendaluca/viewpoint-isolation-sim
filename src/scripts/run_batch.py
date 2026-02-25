@@ -25,6 +25,7 @@ from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.agents.deciders import HeuristicDecider, LLMDecider
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
+from fyp_sim.cli import run_cli
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype
 from fyp_sim.simulation.engine import run_simulation
@@ -255,4 +256,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_cli(main)
