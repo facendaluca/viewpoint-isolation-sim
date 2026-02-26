@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from app_state import get_state
 
 
 def render() -> None:
@@ -14,6 +15,10 @@ def render() -> None:
         """
     )
 
+    st.subheader("Current app state (shared across pages)")
+    state = get_state(st.session_state)
+    st.json(state.to_dict())
+
     st.subheader("What's in v1 (scaffold):")
     st.markdown(
         """
@@ -23,7 +28,7 @@ def render() -> None:
         """
     )
 
-    st.subheader("Next Steps")
+    st.subheader("Next milestones")
     st.markdown(
         """
         - Shared app state (selected run, selected scenario, params)
