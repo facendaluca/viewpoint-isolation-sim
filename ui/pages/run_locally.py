@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import streamlit as st
-from app_state import get_state, set_state
+from app_state import get_state, set_state, to_display_path
 
 from fyp_sim.examiner_dashboard.backend import run_heuristic
 
@@ -11,6 +11,11 @@ from fyp_sim.examiner_dashboard.backend import run_heuristic
 def render() -> None:
     st.header("Run locally")
     st.caption("UI-only page - execution happens in the backend entrypoint in src/.")
+
+    last = st.session_state.pop("dashboard_last_created_run", None)
+    if isinstance(last, str) and last:
+        st.success(f"Created run: `{last}`")
+        st.info("Go to **Explore Results** to browse the run directory.")
 
     state = get_state(st.session_state)
 
@@ -45,7 +50,7 @@ def render() -> None:
     st.divider()
 
     st.subheader("Run (backend placeholder)")
-    st.caption("Creates a new run directory and writes config/meta. No simulation yet.")
+    st.caption("Creates a new run directory and writes ")
 
     col1, col2 = st.columns([1, 2], vertical_alignment="center")
 
@@ -66,9 +71,12 @@ def render() -> None:
             st.error(f"Run failed: {e}")
             return
 
+        created = to_display_path(run_dir)
+
         # Persist selected run for Explore Results page
-        new_state = get_state(st.session_state).with_selected_run_dir(str(run_dir))
+        new_state = get_state(st.session_state).with_selected_run_dir(created)
         set_state(st.session_state, new_state)
 
-        st.success(f"Created run: `{run_dir}`")
-        st.info("Go to **Explore Results** to browse the run directory.")
+        # Persist message across rerun so sidebar updates immediately
+        st.session_state["dashboard_last_created_run"] = created
+        st.rerun()

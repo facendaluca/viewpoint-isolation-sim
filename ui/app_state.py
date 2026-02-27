@@ -7,6 +7,24 @@ from typing import Any
 
 _STATE_KEY = "examiner_dashboard_state_v1"
 
+REPO_ROOT = Path(__file__).resolve().parents[1]  # repo/
+
+
+def resolve_repo_path(p: str | Path) -> Path:
+    path = Path(p)
+    return path if path.is_absolute() else (REPO_ROOT / path)
+
+
+def to_display_path(p: str | Path) -> str:
+    path = Path(p)
+    if not path.is_absolute():
+        path = resolve_repo_path(path)
+    path = path.resolve()
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
 
 @dataclass(frozen=True)
 class AppState:
@@ -86,13 +104,44 @@ def set_state(session: MutableMapping[str, Any], state: AppState) -> None:
 
 
 def available_runs(base_dir: str | Path = "outputs/runs") -> list[str]:
-    """List run directories (UI-only filesystem browse; no simulation logic)."""
-    base = Path(base_dir)
+    """
+    List run directories.
+
+    Supports both layouts:
+    1) New: outputs/runs/YYYYMMDD/<run_id>
+    2) Old: outputs/runs/run_id/
+    """
+    base = resolve_repo_path(base_dir)
     if not base.exists() or not base.is_dir():
         return []
-    runs = [p for p in base.iterdir() if p.is_dir()]
-    # Stable ordering for reproducibility
-    return [str(p) for p in sorted(runs, key=lambda x: x.name)]
+
+    def is_date_dir(p: Path) -> bool:
+        return p.name.isdigit() and len(p.name) == 8
+
+    def looks_like_run_dir(p: Path) -> bool:
+        markers = (
+            "manifest.json",
+            "config_resolved.json",
+            "summary.csv",
+            "config.json",
+            "meta.json",
+        )
+        return any((p / m).exists() for m in markers)
+
+    run_dirs: list[Path] = []
+
+    # If base contains run dirs directly (old layout), include them.
+    for p in sorted(base.iterdir(), key=lambda x: x.name):
+        if not p.is_dir():
+            continue
+        if is_date_dir(p):
+            for r in sorted([d for d in p.iterdir() if d.is_dir()], key=lambda x: x.name):
+                run_dirs.append(r)
+            continue
+        if looks_like_run_dir(p):
+            run_dirs.append(p)
+
+    return [to_display_path(p) for p in run_dirs]
 
 
 def available_scenarios(config_dir: str | Path = "configs") -> list[str]:
@@ -100,9 +149,9 @@ def available_scenarios(config_dir: str | Path = "configs") -> list[str]:
     List scenario names based on config JSON files.
     We return stems (e.g experiment_baseline) to keep it simple and stable.
     """
-    cfg = Path(config_dir)
+    cfg = resolve_repo_path(config_dir)
     if not cfg.exists() or not cfg.is_dir():
-        return ["experiment_baseline.json"]
+        return ["experiment_baseline"]
 
     candidates = sorted(cfg.glob("*json"), key=lambda p: p.name)
     stems = [p.stem for p in candidates]

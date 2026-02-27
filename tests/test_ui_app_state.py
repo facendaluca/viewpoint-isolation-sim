@@ -30,10 +30,18 @@ def test_get_state_initialises_mapping() -> None:
 def test_available_runs_lists_dirs(tmp_path: Path) -> None:
     base = tmp_path / "runs"
     base.mkdir()
-    (base / "b_run").mkdir()
-    (base / "a_run").mkdir()
+
+    # New layout: runs/YYYYMMDD/<run_id>/
+    date_dir = base / "20260227"
+    date_dir.mkdir()
+    (date_dir / "b_run").mkdir()
+    (date_dir / "a_run").mkdir()
+    # mark them as "run dirs" by adding manifest.json
+    (date_dir / "b_run" / "manifest.json").write_text("{}", encoding="utf-8")
+    (date_dir / "a_run" / "manifest.json").write_text("{}", encoding="utf-8")
+
     runs = available_runs(base)
-    assert runs == [str(base / "a_run"), str(base / "b_run")]
+    assert runs == [str(date_dir / "a_run"), str(date_dir / "b_run")]
 
 
 def test_available_scenarios_lists_json_stems(tmp_path: Path) -> None:
