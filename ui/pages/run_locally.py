@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 
 import streamlit as st
-from app_state import get_state
+from app_state import get_state, set_state
+
+from fyp_sim.examiner_dashboard.backend import run_heuristic
 
 
 def render() -> None:
     st.header("Run locally")
-    st.caption("Scaffold only - no simulation is extended from the UI yet")
+    st.caption("UI-only page - execution happens in the backend entrypoint in src/.")
 
     state = get_state(st.session_state)
 
@@ -28,16 +30,45 @@ def render() -> None:
         height=220,
     )
 
+    parsed_ok = False
     try:
         loaded = json.loads(params_text)
         if not isinstance(loaded, dict):
             raise ValueError("Params JSON must be an object (dictionary).")
+
         st.success("Params parsed successfully.")
+        parsed_ok = True
+
     except (json.JSONDecodeError, ValueError) as e:
         st.error(f"Invalid params: {e}")
 
     st.divider()
 
-    st.subheader("Run (config coming in Milestone 3)")
-    st.button("Run heuristic (placeholder)", disabled=True)
-    st.info("Milestone 3 will wire this to a backend function outside the UI layer.")
+    st.subheader("Run (backend placeholder)")
+    st.caption("Creates a new run directory and writes config/meta. No simulation yet.")
+
+    col1, col2 = st.columns([1, 2], vertical_alignment="center")
+
+    with col1:
+        run_clicked = st.button("Run heuristic", disabled=not parsed_ok)
+
+    with col2:
+        st.write(f"**Selected run dir:** `{state.selected_run_dir or '(none)'}`")
+
+    if run_clicked:
+        # Build a resolved config dict
+        cfg = dict(state.params)
+        cfg["scenario"] = state.selected_scenario
+
+        try:
+            run_dir = run_heuristic(cfg)
+        except Exception as e:  # Keep UI resilient; backend raises real errors
+            st.error(f"Run failed: {e}")
+            return
+
+        # Persist selected run for Explore Results page
+        new_state = get_state(st.session_state).with_selected_run_dir(str(run_dir))
+        set_state(st.session_state, new_state)
+
+        st.success(f"Created run: `{run_dir}`")
+        st.info("Go to **Explore Results** to browse the run directory.")
