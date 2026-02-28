@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
-from app_state import available_runs, get_state, resolve_repo_path, set_state
-from results_io import read_csv_head, read_json
-from run_inspector import (
+
+from ui.app_state import available_runs, get_state, resolve_repo_path, set_state
+from ui.results_io import read_csv_head, read_json
+from ui.run_inspector import (
     find_config_file,
     find_manifest_file,
     find_seed_log,
@@ -93,7 +94,7 @@ def render_summary(summary_path: Path | None) -> None:
             if df.empty:
                 st.info("summary.csv is empty.")
             else:
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width="stretch")
             st.download_button(
                 "Download summary.csv",
                 data=summary_path.read_bytes(),
@@ -125,7 +126,7 @@ def render_seeds(run_dir: Path) -> None:
             if df.empty:
                 st.info("run_log.csv exists but is empty (placeholder).")
             else:
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df, width="stretch")
             st.download_button(
                 "Download run_log.csv",
                 data=run_log.read_bytes(),
