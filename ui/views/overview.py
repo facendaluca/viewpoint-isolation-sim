@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import streamlit as st
-from app_state import get_state
+
+from ui.app_state import get_state
 
 
 def render() -> None:

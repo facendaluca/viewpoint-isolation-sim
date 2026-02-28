@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 
 import streamlit as st
-from app_state import get_state, set_state, to_display_path
 
 from fyp_sim.examiner_dashboard.backend import run_heuristic
 from fyp_sim.examiner_dashboard.configs import build_resolved_config
+from ui.app_state import get_state, set_state, to_display_path
 
 
 def render() -> None:
@@ -20,7 +20,7 @@ def render() -> None:
         col_a, col_b = st.columns([1, 3], vertical_alignment="center")
         with col_a:
             if st.button("Open Explore Results"):
-                st.switch_page("ui/pages/explore_results")
+                st.switch_page("pages/3_Explore_Results.py")
         with col_b:
             st.info("Go to **Explore Results** to browse the run directory.")
 
