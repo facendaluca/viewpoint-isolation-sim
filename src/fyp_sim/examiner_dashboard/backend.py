@@ -30,6 +30,7 @@ def run_heuristic(
     config: dict[str, Any],
     *,
     output_root: str | Path = "outputs/runs",
+    cfg_path: str | Path | None = None,
 ) -> Path:
     """
     Backend placeholder for the dashboard
@@ -39,21 +40,23 @@ def run_heuristic(
     - Creates a run directory matching the project's artefact convention
     - Writes config_resolved.json + manifest.json via create_run_artefacts
     - Returns the run directory path
-
-    NOTE: This function intentionally does NOT run the simulation yet.
     """
     if not isinstance(config, dict):
         raise TypeError("config must be a dict[str, Any]")
 
     cfg = dict(config)  # copy to avoid mutating caller
-    scenario = cfg["scenario"]
+
+    scenario = cfg.get("scenario")
+    if not isinstance(scenario, str) or not scenario.strip():
+        scenario = "experiment_baseline"
+    cfg["scenario"] = scenario
 
     mode = _scenario_to_mode(scenario)
     seeds = _extract_seeds(cfg)
 
     artefacts = create_run_artefacts(
         cfg=cfg,
-        cfg_path=None,
+        cfg_path=Path(cfg_path) if cfg_path is not None else None,
         mode=mode,
         seeds=seeds,
         outputs_root=Path(output_root),

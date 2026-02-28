@@ -40,3 +40,21 @@ def test_run_heuristic_creates_run_dir_and_writes_files(tmp_path: Path) -> None:
     assert manifest["seeds"] == [42]
     assert "cfg_hash" in manifest
     assert "run_id" in manifest
+
+
+def test_run_heuristic_records_cfg_path_in_manifest(tmp_path: Path) -> None:
+    cfg = {
+        "scenario": "experiment_baseline",
+        "steps": 150,
+        "top_k": 5,
+        "seed": 42,
+    }
+
+    run_dir = run_heuristic(
+        cfg,
+        output_root=tmp_path,
+        cfg_path="configs/experiment_baseline.json",
+    )
+
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["cfg_path"] == "configs/experiment_baseline.json"
