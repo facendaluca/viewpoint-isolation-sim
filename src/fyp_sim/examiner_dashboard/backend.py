@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.artefacts import create_run_artefacts
+from fyp_sim.runners.seed_sweep import run_seed_sweep
 
 
 def _scenario_to_mode(scenario: str) -> str:
@@ -72,3 +73,16 @@ def run_heuristic(
         (seed_dir / "run_log.csv").touch(exist_ok=True)
 
     return artefacts.root_dir
+
+
+def run_heuristic_real(
+    config: dict[str, Any],
+    *,
+    output_root: str | Path | None = None,
+    cfg_path: str | Path | None = None,
+) -> Path:
+    return run_seed_sweep(
+        config,
+        cfg_path=Path(cfg_path),
+        outputs_root=Path(output_root),
+    )
