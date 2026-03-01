@@ -4,9 +4,10 @@ import json
 
 import streamlit as st
 
-from fyp_sim.examiner_dashboard.backend import run_heuristic
 from fyp_sim.examiner_dashboard.configs import build_resolved_config
 from ui.app_state import get_state, set_state, to_display_path
+from ui.progress import StreamlitProgress
+from ui.run_execution import ExecutionMode, execute_run
 
 
 def render() -> None:
@@ -19,8 +20,7 @@ def render() -> None:
 
         col_a, col_b = st.columns([1, 3], vertical_alignment="center")
         with col_a:
-            if st.button("Open Explore Results"):
-                st.switch_page("pages/3_Explore_Results.py")
+            st.page_link("pages/3_Explore_Results.py", label="Open Explore Results", icon="🔍")
         with col_b:
             st.info("Go to **Explore Results** to browse the run directory.")
 
@@ -30,6 +30,17 @@ def render() -> None:
     st.write(
         "Run heuristic always creates a NEW run based on Selected scenario + params."
         "Selected run directory is for browsing only."
+    )
+
+    # Execution mode UI, execution logic lives elsewhere
+    mode_label = st.radio(
+        "Execution mode",
+        options=["Placeholder (fast)", "Real simulation (writes real logs)"],
+        index=0,
+        horizontal=True,
+    )
+    exec_mode = (
+        ExecutionMode.PLACEHOLDER if mode_label == "Placeholder (fast)" else ExecutionMode.REAL
     )
 
     default_params = {"steps": 150, "top_k": 5, "seed": 0}
@@ -89,9 +100,10 @@ def render() -> None:
 
     st.divider()
 
-    st.subheader("Run (backend placeholder)")
+    st.subheader("Run")
     st.caption(
-        "Creates a new run directory using the project's artefact convention and writes config_resolved.json + manifest.json."
+        "Placeholder mode writes config_resolved.json + manifest.json only,"
+        "Real mode runs the simulation and writes real run_log.csv + summary.csv."
     )
 
     col1, col2 = st.columns([1, 2], vertical_alignment="center")
@@ -107,13 +119,20 @@ def render() -> None:
             st.error("Resolved config is unavailable; cannot run.")
             return
 
+        progress = StreamlitProgress() if exec_mode == ExecutionMode.REAL else None
+
         try:
-            run_dir = run_heuristic(resolved_cfg, cfg_path=cfg_path_str)
+            result = execute_run(
+                resolved_cfg=resolved_cfg,
+                cfg_path=cfg_path_str,
+                mode=exec_mode,
+                progress=progress,
+            )
         except Exception as e:  # Keep UI resilient; backend raises real errors
             st.error(f"Run failed: {e}")
             return
 
-        created = to_display_path(run_dir)
+        created = to_display_path(result.run_dir)
 
         # Persist selected run for Explore Results page
         new_state = get_state(st.session_state).with_selected_run_dir(created)

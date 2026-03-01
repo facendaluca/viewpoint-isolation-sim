@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,7 @@ def run_seed_sweep(
     *,
     cfg_path: Path | None,
     outputs_root: Path,
+    progress_cb: Callable[[int, int, int], None] | None = None,
 ) -> Path:
     """
     Real experiment execution: run all seeds and write:
@@ -151,7 +153,10 @@ def run_seed_sweep(
 
     rows: list[dict[str, Any]] = []
 
-    for seed in seeds:
+    for i, seed in enumerate(seeds, start=1):
+        if progress_cb is not None:
+            progress_cb(i, len(seeds), seed)
+
         rng = random.Random(seed)
         user = build_user(cfg) if mutates_user else base_user
 

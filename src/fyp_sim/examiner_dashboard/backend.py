@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -78,11 +79,13 @@ def run_heuristic(
 def run_heuristic_real(
     config: dict[str, Any],
     *,
-    output_root: str | Path | None = None,
+    output_root: str | Path = "outputs/runs",
     cfg_path: str | Path | None = None,
+    progress_cb: Callable[[int, int, int], None] | None = None,
 ) -> Path:
     return run_seed_sweep(
         config,
-        cfg_path=Path(cfg_path),
+        cfg_path=Path(cfg_path) if cfg_path is not None else None,
         outputs_root=Path(output_root),
+        progress_cb=progress_cb,
     )
