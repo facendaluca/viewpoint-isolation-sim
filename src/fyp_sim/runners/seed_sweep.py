@@ -102,6 +102,7 @@ def run_seed_sweep(
     cfg_path: Path | None,
     outputs_root: Path,
     progress_cb: Callable[[int, int, int], None] | None = None,
+    force_heuristic: bool = False,
 ) -> Path:
     """
     Real experiment execution: run all seeds and write:
@@ -115,6 +116,9 @@ def run_seed_sweep(
 
     # Avoid mutating caller
     cfg = dict(cfg)
+
+    if force_heuristic:
+        cfg["policy"] = {"mode": "heuristic"}
 
     _fail_fast_old_alpha(cfg, cfg_path)
 

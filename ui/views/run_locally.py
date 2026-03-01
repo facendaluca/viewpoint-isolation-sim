@@ -8,6 +8,7 @@ from fyp_sim.examiner_dashboard.configs import build_resolved_config
 from ui.app_state import get_state, set_state, to_display_path
 from ui.progress import StreamlitProgress
 from ui.run_execution import ExecutionMode, execute_run
+from ui.run_integrity import check_run_outputs
 
 
 def render() -> None:
@@ -42,6 +43,12 @@ def render() -> None:
     exec_mode = (
         ExecutionMode.PLACEHOLDER if mode_label == "Placeholder (fast)" else ExecutionMode.REAL
     )
+
+    if exec_mode == ExecutionMode.REAL:
+        st.info(
+            "Real simulation runs in **heuristic mode only** in the hosted Examiner Dashboard."
+            "LLM mode is supported only when running the repo locally (see README.md)."
+        )
 
     default_params = {"steps": 150, "top_k": 5, "seed": 0}
     params = state.params or default_params
@@ -131,6 +138,16 @@ def render() -> None:
         except Exception as e:  # Keep UI resilient; backend raises real errors
             st.error(f"Run failed: {e}")
             return
+
+        # Integrity check
+        if exec_mode == ExecutionMode.REAL:
+            issues = check_run_outputs(result.run_dir)
+            if issues:
+                st.warning("Run completed, but some outputs look incomplete:")
+                for iss in issues[:8]:
+                    st.write(f"- **{iss.kind}**: `{iss.path}` - {iss.message}")
+                if len(issues) > 8:
+                    st.caption(f"Showing 8 of {len(issues)} issues.")
 
         created = to_display_path(result.run_dir)
 

@@ -52,6 +52,7 @@ def create_run_artefacts(
     seeds: list[int],
     outputs_root: Path,
     *,
+    runner: str | None = None,
     write_config_snapshot: bool = True,
 ) -> RunArtefacts:
     """Create a run directory + manifest for an experiment execution.
@@ -95,6 +96,7 @@ def create_run_artefacts(
         "run_id": run_id,
         "date_ymd": date_ymd,
         "mode": mode,
+        "runner": runner,
         "cfg_path": str(cfg_path) if cfg_path is not None else None,
         "cfg_hash": cfg_hash,
         "seeds": seeds,

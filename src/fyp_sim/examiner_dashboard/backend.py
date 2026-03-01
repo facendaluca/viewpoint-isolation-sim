@@ -62,6 +62,7 @@ def run_heuristic(
         mode=mode,
         seeds=seeds,
         outputs_root=Path(output_root),
+        runner="dashboard_placeholder",
         write_config_snapshot=True,
     )
 
@@ -87,5 +88,7 @@ def run_heuristic_real(
         config,
         cfg_path=Path(cfg_path) if cfg_path is not None else None,
         outputs_root=Path(output_root),
+        runner="dashboard_real",
         progress_cb=progress_cb,
+        force_heuristic=True,
     )
