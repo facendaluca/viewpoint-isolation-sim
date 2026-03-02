@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from fyp_sim.models import Video
+
 
 @dataclass(frozen=True)
 class RunArtefacts:
@@ -33,6 +35,48 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _corpus_payload(videos: list[Video]) -> str:
+    """Canonical JSON payload for a corpus.
+
+    Deterministic (sorted, stable key ordering) so a sha256 hash can prove "same corpus" across runs/configs.
+
+    IMPORTANT: This does not mutate the in-memory order used by the simulation.
+    """
+    ordered = sorted(
+        videos,
+        key=lambda v: (
+            int(v.video_id),
+            str(v.topic_category),
+            float(v.viewpoint_score),
+            float(v.sentiment_score),
+            int(v.duration_s),
+            tuple(v.tags),
+        ),
+    )
+
+    out: list[dict[str, Any]] = []
+    for v in ordered:
+        out.append(
+            {
+                "video_id": int(v.video_id),
+                "topic_category": str(v.topic_category),
+                "viewpoint_score": float(v.viewpoint_score),
+                "sentiment_score": float(v.sentiment_score),
+                "duration_s": int(v.duration_s),
+                "tags": list(v.tags),
+            }
+        )
+    return out
+
+
+def _sha256_canonical_json(obj: Any) -> str:
+    """Stable sha256 over a canonical JSON representation."""
+    payload = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _fail_fast_old_alpha(cfg: dict[str, Any], cfg_path: Path | None) -> None:
     if "alpha" in cfg:
         where = f" in {cfg_path}" if cfg_path is not None else ""
@@ -52,6 +96,7 @@ def create_run_artefacts(
     seeds: list[int],
     outputs_root: Path,
     *,
+    corpus: list[Video] | None = None,
     runner: str | None = None,
     write_config_snapshot: bool = True,
 ) -> RunArtefacts:
@@ -102,6 +147,24 @@ def create_run_artefacts(
         "seeds": seeds,
         "key_params": key_params,
     }
+
+    if corpus is not None:
+        corpus_rel = "corpus.json"
+        corpus_path = root_dir / corpus_rel
+
+        payload = _corpus_payload(corpus)
+        corpus_path.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+        corpus_cfg = cfg.get("corpus", {}) or {}
+        manifest["corpus"] = {
+            "path": corpus_rel,
+            "hash": _sha256_canonical_json(payload),
+            "n_videos": len(corpus),
+            "source": corpus_cfg.get("source", "file"),
+            "seed": corpus_cfg.get("seed"),
+        }
 
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"

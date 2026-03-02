@@ -153,6 +153,7 @@ def run_seed_sweep(
         seeds=seeds,
         outputs_root=outputs_root,
         write_config_snapshot=True,
+        corpus=pool,
     )
 
     rows: list[dict[str, Any]] = []
