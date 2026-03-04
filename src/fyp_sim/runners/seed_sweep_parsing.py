@@ -7,6 +7,14 @@ from typing import Any
 from fyp_sim.models import User, UserPhenotype
 
 
+def build_user(cfg: dict[str, Any]) -> User:
+    """Legacy user builder"""
+    user_cfg = cfg.get("user")
+    if not isinstance(user_cfg, dict):
+        raise ValueError("user must be an object/dict")
+    return build_user_from_dict(user_cfg)
+
+
 def phenotype_from_str(s: str) -> UserPhenotype:
     s = s.strip().lower()
     if s == "watcher":

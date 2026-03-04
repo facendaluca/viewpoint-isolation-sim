@@ -6,7 +6,8 @@ from typing import Any
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.corpus import build_corpus
 from fyp_sim.runners.csv_io import write_run_log_csv, write_summary_csv
-from fyp_sim.runners.seed_sweep import build_decider, build_user, extract_seeds
+from fyp_sim.runners.seed_sweep import build_decider, extract_seeds
+from fyp_sim.runners.seed_sweep_parsing import build_user
 from fyp_sim.simulation.engine import run_simulation
 
 

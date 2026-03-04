@@ -59,6 +59,13 @@ def _make_chooser(curiosity: float):
     if curiosity <= 0.0:
         return choose_video_weighted_top_k
 
+    def chooser(user, pool, rng, *, top_k: int, rank_alpha: float):
+        if rng.random() < curiosity:
+            return rng.choice(pool)
+        return choose_video_weighted_top_k(user, pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+
+    return chooser
+
 
 def run_seed_sweep(
     cfg: dict[str, Any],
