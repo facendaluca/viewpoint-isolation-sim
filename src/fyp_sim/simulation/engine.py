@@ -88,6 +88,8 @@ class StepLog:
     llm_action: str = ""
     llm_confidence: float | None = None
 
+    agent_id: str = ""
+
 
 def choose_video_max_interest(user: User, pool: list[Video]) -> Video:
     """Deterministic baseline: always choose the most 'interesting' video.

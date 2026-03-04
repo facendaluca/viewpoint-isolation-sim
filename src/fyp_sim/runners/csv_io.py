@@ -9,7 +9,11 @@ from fyp_sim.simulation.engine import StepLog
 
 
 def write_run_log_csv(
-    path: Path, logs: Iterable[StepLog], *, include_viewpoint: bool = False
+    path: Path,
+    logs: Iterable[StepLog],
+    *,
+    include_viewpoint: bool = False,
+    include_agent_id: bool = False,
 ) -> None:
     """Write per-step logs for one seed to CSV (schema matches existing scripts)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -27,6 +31,10 @@ def write_run_log_csv(
             "vii_t",
             "vii_cum",
         ]
+
+        if include_agent_id:
+            header = ["agent_id", *header]
+
         if include_viewpoint:
             header += ["user_viewpoint_pre", "user_viewpoint_post", "video_viewpoint_score"]
         w.writerow(header)
@@ -42,6 +50,10 @@ def write_run_log_csv(
                 f"{row.vii_t:.4f}",
                 f"{row.vii_cum:.4f}",
             ]
+
+            if include_agent_id:
+                base = [row.agent_id, *base]
+
             if include_viewpoint:
                 base += [
                     f"{row.user_viewpoint_pre:.4f}",
