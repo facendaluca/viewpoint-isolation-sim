@@ -15,9 +15,12 @@ This project builds a controlled simulation to investigate how engagement-optimi
 ```text
 ├── configs/   # Experiment configurations (JSON)
 ├── outputs/   # Generated run artifacts (logs, summaries, plots)
+├── pages/     # Streamlit dashboard pages
 ├── results/   # Legacy outputs location
 ├── src/       # Core simulation and scripts
-└── tests/     # Unit and integration tests
+├── tests/     # Unit and integration tests
+├── ui/        # UI components for the dashboard
+└── Dashboard.py # Streamlit UI entrypoint
 ```
 
 ## Running experiments
@@ -40,6 +43,12 @@ python -m src.scripts.make_plots --run-dir outputs/runs/YYYYMMDD/<run_id>
 ```
 *Note: Scripts support a `--legacy` flag to output directly to the legacy `results/` folder.*
 
+## Dashboard / UI
+An interactive Streamlit dashboard is available to run and explore experiments. Launch it via:
+```bash
+streamlit run Dashboard.py
+```
+
 ## Experiment artefacts
 Experiments write out to an automatically generated directory structure under `outputs/runs/`, following the format `YYYYMMDD/<HHMMSS>Z_<mode>_<hash8>/`. The `run_id` encodes the time, simulation mode (e.g., `baseline`, `sweep`), and an 8-character hash of the resolved configuration snapshot.
 
@@ -54,6 +63,19 @@ outputs/runs/20260223/153022Z_baseline_a1b2c3d4/
     ├── s00042/
     │   └── run_log.csv    # Step-by-step engagement log for seed
     └── ...
+```
+
+## Testing
+Run the test suite using `pytest`:
+```bash
+pytest
+```
+*This executes unit and integration tests located in `tests/`.*
+
+## Benchmarks
+Performance benchmarks are included in `src/scripts/bench_nfr02.py`. Execute it to measure simulation overhead:
+```bash
+python -m src.scripts.bench_nfr02
 ```
 
 ## LLM mode
