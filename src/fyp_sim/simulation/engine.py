@@ -16,6 +16,7 @@ Design goal: keep the engine small and deterministic (given rng seed) so experim
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -144,6 +145,12 @@ class ChooserFn(Protocol):
     ) -> Video: ...
 
 
+class PhaseTracer(Protocol):
+    """Optional hook for timing/observability around the timestep loop"""
+
+    def phase(self, name: str) -> AbstractContextManager[None]: ...
+
+
 def _resolve_drift_alpha(*, drift_alpha: float | None, viewpoint_drift_rate: float) -> float:
     """Resolve drift strength with backwards-compatible aliasing
 
@@ -181,6 +188,7 @@ def run_simulation(
     interest_prune_below: float = 0.001,
     enable_viewpoint_drift: bool = False,
     viewpoint_drift_rate: float = 0.0,
+    phase_tracer: PhaseTracer | None = None,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
     if alpha is not None:
@@ -216,74 +224,149 @@ def run_simulation(
     logs: list[StepLog] = []
     vii_cum = 0.0
 
+    if phase_tracer is None:
+        for t in range(steps):
+            # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
+            v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+            action = decider.decide_next_action(user, v)
+            wt = watch_time_fn(user, v, rng)
+
+            if enable_interest_updates and action == UserAction.WATCH:
+                update_interest_vector(
+                    user=user,
+                    video=v,
+                    watch_time_s=wt,
+                    topic_alpha=interest_topic_alpha,
+                    tag_alpha=interest_tag_alpha,
+                    decay=interest_decay,
+                    normalise=interest_normalise,
+                    prune_below=interest_prune_below,
+                )
+
+            user_viewpoint_pre = float(user.viewpoint_score)
+
+            vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
+            # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
+            vii_cum = running_mean(vii_cum, t, vii_t)
+            topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_keys = len(user.interest_vector)
+
+            # Optional viewpoint drift update happens after VII_t so baseline VII_t stays comparable.
+            if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
+                user.viewpoint_score = apply_viewpoint_drift(
+                    user_viewpoint_pre,
+                    v.viewpoint_score,
+                    drift_rate=viewpoint_drift_rate,
+                    action=action,
+                )
+
+            user_viewpoint_post = float(user.viewpoint_score)
+
+            # Log policy/LLM metadata
+            meta = getattr(decider, "last_meta", None)
+
+            policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
+            llm_prompt_id = getattr(meta, "prompt_id", "") or ""
+            llm_valid = bool(getattr(meta, "valid", True)) if meta else True
+            llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
+            llm_action = getattr(meta, "llm_action", "") or ""
+            llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
+
+            logs.append(
+                StepLog(
+                    t=t,
+                    video_id=v.video_id,
+                    action=action.value,
+                    watch_time_s=wt,
+                    interest=interest_score(user, v),
+                    vii_t=vii_t,
+                    vii_cum=vii_cum,
+                    policy_mode=policy_mode,
+                    llm_prompt_id=llm_prompt_id,
+                    llm_valid=llm_valid,
+                    llm_fallback_reason=llm_fallback_reason,
+                    llm_action=llm_action,
+                    llm_confidence=llm_confidence,
+                    topic_interest=topic_interest,
+                    interest_keys=interest_keys,
+                    user_viewpoint_pre=user_viewpoint_pre,
+                    user_viewpoint_post=user_viewpoint_post,
+                    video_viewpoint_score=float(v.viewpoint_score),
+                )
+            )
+
+        return logs
+
+    # Profiled path: record per-phase timings via the provided tracer.
+    tracer = phase_tracer
     for t in range(steps):
-        # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
-        v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
-        action = decider.decide_next_action(user, v)
-        wt = watch_time_fn(user, v, rng)
+        with tracer.phase("generate_feed"):
+            v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
 
-        if enable_interest_updates and action == UserAction.WATCH:
-            update_interest_vector(
-                user=user,
-                video=v,
-                watch_time_s=wt,
-                topic_alpha=interest_topic_alpha,
-                tag_alpha=interest_tag_alpha,
-                decay=interest_decay,
-                normalise=interest_normalise,
-                prune_below=interest_prune_below,
+        with tracer.phase("simulate_interaction"):
+            action = decider.decide_next_action(user, v)
+            wt = watch_time_fn(user, v, rng)
+
+        with tracer.phase("update_state"):
+            if enable_interest_updates and action == UserAction.WATCH:
+                update_interest_vector(
+                    user=user,
+                    video=v,
+                    watch_time_s=wt,
+                    topic_alpha=interest_topic_alpha,
+                    tag_alpha=interest_tag_alpha,
+                    decay=interest_decay,
+                    normalise=interest_normalise,
+                    prune_below=interest_prune_below,
+                )
+
+            user_viewpoint_pre = float(user.viewpoint_score)
+
+            vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
+            vii_cum = running_mean(vii_cum, t, vii_t)
+            topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_keys = len(user.interest_vector)
+
+            if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
+                user.viewpoint_score = apply_viewpoint_drift(
+                    user_viewpoint_pre,
+                    v.viewpoint_score,
+                    drift_rate=viewpoint_drift_rate,
+                    action=action,
+                )
+
+            user_viewpoint_post = float(user.viewpoint_score)
+
+        with tracer.phase("log_append"):
+            meta = getattr(decider, "last_meta", None)
+            policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
+            llm_prompt_id = getattr(meta, "prompt_id", "") or ""
+            llm_valid = bool(getattr(meta, "valid", True)) if meta else True
+            llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
+            llm_action = getattr(meta, "llm_action", "") or ""
+            llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
+
+            logs.append(
+                StepLog(
+                    t=t,
+                    video_id=v.video_id,
+                    action=action.value,
+                    watch_time_s=wt,
+                    interest=interest_score(user, v),
+                    vii_t=vii_t,
+                    vii_cum=vii_cum,
+                    policy_mode=policy_mode,
+                    llm_prompt_id=llm_prompt_id,
+                    llm_valid=llm_valid,
+                    llm_fallback_reason=llm_fallback_reason,
+                    llm_action=llm_action,
+                    llm_confidence=llm_confidence,
+                    topic_interest=topic_interest,
+                    interest_keys=interest_keys,
+                    user_viewpoint_pre=user_viewpoint_pre,
+                    user_viewpoint_post=user_viewpoint_post,
+                    video_viewpoint_score=float(v.viewpoint_score),
+                )
             )
-
-        user_viewpoint_pre = float(user.viewpoint_score)
-
-        vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
-        # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
-        vii_cum = running_mean(vii_cum, t, vii_t)
-        topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
-        interest_keys = len(user.interest_vector)
-
-        # Optional viewpoint drift update happens after VII_t so baseline VII_t stays comparable.
-        if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
-            user.viewpoint_score = apply_viewpoint_drift(
-                user_viewpoint_pre,
-                v.viewpoint_score,
-                drift_rate=viewpoint_drift_rate,
-                action=action,
-            )
-
-        user_viewpoint_post = float(user.viewpoint_score)
-
-        # Log policy/LLM metadata
-        meta = getattr(decider, "last_meta", None)
-
-        policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
-        llm_prompt_id = getattr(meta, "prompt_id", "") or ""
-        llm_valid = bool(getattr(meta, "valid", True)) if meta else True
-        llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
-        llm_action = getattr(meta, "llm_action", "") or ""
-        llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
-
-        logs.append(
-            StepLog(
-                t=t,
-                video_id=v.video_id,
-                action=action.value,
-                watch_time_s=wt,
-                interest=interest_score(user, v),
-                vii_t=vii_t,
-                vii_cum=vii_cum,
-                policy_mode=policy_mode,
-                llm_prompt_id=llm_prompt_id,
-                llm_valid=llm_valid,
-                llm_fallback_reason=llm_fallback_reason,
-                llm_action=llm_action,
-                llm_confidence=llm_confidence,
-                topic_interest=topic_interest,
-                interest_keys=interest_keys,
-                user_viewpoint_pre=user_viewpoint_pre,
-                user_viewpoint_post=user_viewpoint_post,
-                video_viewpoint_score=float(v.viewpoint_score),
-            )
-        )
 
     return logs

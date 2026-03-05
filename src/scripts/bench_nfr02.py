@@ -10,6 +10,7 @@ from typing import Any
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
 from fyp_sim.benchmarks.common import BenchmarkParams, ConsoleCapture, TimingStats, format_os_text
+from fyp_sim.benchmarks.phase_timing import PhaseTimer, build_perf_breakdown
 from fyp_sim.benchmarks.system_info import collect_machine_specs
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype, Video
@@ -180,9 +181,13 @@ def write_outputs(
     params: BenchmarkParams,
     stats: TimingStats,
     console: ConsoleCapture,
+    phase_timer: PhaseTimer | None = None,
 ) -> None:
+    export_t0 = time.perf_counter()
+
     seed_dir = artefacts.seeds_dir / f"s{seed:05d}"
     seed_dir.mkdir(parents=True, exist_ok=True)
+
     write_run_log_csv(seed_dir / "run_log.csv", logs, include_viewpoint=False)
 
     summary = summarise_logs(
@@ -190,6 +195,7 @@ def write_outputs(
         lock_in_threshold=float(cfg["lock_in_threshold"]),
         persistence_window=int(cfg["persistence_window"]),
     )
+
     row: dict[str, Any] = {
         "seed": int(seed),
         "steps": int(params.steps),
@@ -221,11 +227,24 @@ def write_outputs(
     artefacts.manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-
     (artefacts.root_dir / "stdout.txt").write_text(console.to_text(), encoding="utf-8")
 
+    export_dt = time.perf_counter() - export_t0
+    if phase_timer is not None:
+        breakdown = build_perf_breakdown(
+            timings=phase_timer.timings,
+            steps=int(params.steps),
+            n_videos=int(params.n_videos),
+            top_k=int(params.top_k),
+            rank_alpha=float(params.rank_alpha),
+            extra_phases_s={"export_logs": float(export_dt)},
+        )
+        (artefacts.root_dir / "perf_breakdown.json").write_text(
+            json.dumps(breakdown, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
-def parse_args() -> BenchmarkParams:
+
+def parse_args() -> tuple[BenchmarkParams, bool]:
     p = argparse.ArgumentParser(
         description="NFR-02 benchmark: 1000 steps with corpus N=1000 under 1s (3 runs)."
     )
@@ -237,24 +256,29 @@ def parse_args() -> BenchmarkParams:
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--threshold-s", type=float, default=1.0)
     p.add_argument("--outputs-root", type=Path, default=Path("outputs/benchmarks"))
-    a = p.parse_args()
+    p.add_argument(
+        "--profile-phases",
+        action="store_true",
+        help="Write perf_breakdown.json with per-phase timings (includes one extra untimed run).",
+    )
 
+    args = p.parse_args()
     params = BenchmarkParams(
-        steps=int(a.steps),
-        n_videos=int(a.n_videos),
-        seed=int(a.seed),
-        top_k=int(a.top_k),
-        rank_alpha=float(a.rank_alpha),
-        repeats=int(a.repeats),
-        threshold_s=float(a.threshold_s),
-        outputs_root=Path(a.outputs_root),
+        steps=int(args.steps),
+        n_videos=int(args.n_videos),
+        seed=int(args.seed),
+        top_k=int(args.top_k),
+        rank_alpha=float(args.rank_alpha),
+        repeats=int(args.repeats),
+        threshold_s=float(args.threshold_s),
+        outputs_root=Path(args.outputs_root),
     )
     params.validate()
-    return params
+    return params, bool(args.profile_phases)
 
 
 def main() -> None:
-    params = parse_args()
+    params, profile_phases = parse_args()
 
     cfg = build_benchmark_config(params)
     _fail_fast_old_alpha(cfg, cfg_path=None)
@@ -275,8 +299,27 @@ def main() -> None:
 
     console = ConsoleCapture()
     specs = collect_machine_specs()
-
     print_header(console, params=params, run_dir=artefacts.root_dir, specs=specs)
+
+    phase_timer: PhaseTimer | None = None
+    if profile_phases:
+        console.emit("--- Phase profiling ---")
+        phase_timer = PhaseTimer()
+        user = build_user(cfg)
+        rng = random.Random(params.seed)
+        _ = run_simulation(
+            user=user,
+            video_pool=pool,
+            steps=params.steps,
+            rng=rng,
+            top_k=params.top_k,
+            rank_alpha=float(params.rank_alpha),
+            drift_alpha=0.0,
+            enable_interest_updates=False,
+            enable_viewpoint_drift=False,
+            viewpoint_drift_rate=0.0,
+            phase_tracer=phase_timer,
+        )
     logs_first, stats = run_trials(params, cfg=cfg, pool=pool, console=console)
     print_results(console, stats)
 
@@ -289,6 +332,7 @@ def main() -> None:
         params=params,
         stats=stats,
         console=console,
+        phase_timer=phase_timer,
     )
 
 
