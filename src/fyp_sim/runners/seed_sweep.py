@@ -22,6 +22,7 @@ from fyp_sim.runners.seed_sweep_parsing import (
     scenario_to_mode,
 )
 from fyp_sim.simulation.engine import choose_video_weighted_top_k, run_simulation
+from fyp_sim.simulation.engine_opt import WeightedTopKChooserOpt
 
 
 def build_decider(cfg: dict[str, Any]):
@@ -39,7 +40,7 @@ def build_decider(cfg: dict[str, Any]):
 
         client = OpenAICompatClient(
             base_url=(llm_cfg.get("base_url") or "http://localhost:1234/v1"),
-            model=str(llm_cfg.get["model"]),
+            model=str(llm_cfg.get("model")),
             api_key=llm_cfg.get("api_key"),
             temperature=float(llm_cfg.get("temperature", 0.0)),
             max_tokens=llm_cfg.get("max_tokens"),
@@ -54,15 +55,15 @@ def build_decider(cfg: dict[str, Any]):
     raise ValueError("policy.mode must be 'heuristic' or 'llm'")
 
 
-def _make_chooser(curiosity: float):
-    """Return a chooser function with engine.rim_simulation(chooser=...)."""
+def _make_chooser(curiosity: float, base_chooser):
+    """Return a chooser function with run_simulation(chooser=...)."""
     if curiosity <= 0.0:
-        return choose_video_weighted_top_k
+        return base_chooser
 
     def chooser(user, pool, rng, *, top_k: int, rank_alpha: float):
         if rng.random() < curiosity:
             return rng.choice(pool)
-        return choose_video_weighted_top_k(user, pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+        return base_chooser(user, pool, rng, top_k=top_k, rank_alpha=rank_alpha)
 
     return chooser
 
@@ -112,13 +113,22 @@ def run_seed_sweep(
     drift_active = enable_viewpoint_drift and drift_alpha > 0.0
     mutates_user = drift_active or enable_interest_updates
 
-    # Policy
-    curiosity = policy_curiosity(cfg)
-    chooser = _make_chooser(curiosity)
-    decider = build_decider(cfg)
-
     # Fixed corpus for entire run (required for evaluation comparability)
     pool = build_corpus(cfg)
+
+    # Engine selection (default baseline)
+    engine_name = str(cfg.get("engine", "baseline")).lower()
+    if engine_name == "opt":
+        base_chooser = WeightedTopKChooserOpt.from_pool(pool)
+    elif engine_name == "baseline":
+        base_chooser = choose_video_weighted_top_k
+    else:
+        raise ValueError("cfg['engine] must be 'baseline' or 'opt'")
+
+    # Policy
+    curiosity = policy_curiosity(cfg)
+    chooser = _make_chooser(curiosity, base_chooser)
+    decider = build_decider(cfg)
 
     # Cohort support
     agents = parse_agents(cfg)

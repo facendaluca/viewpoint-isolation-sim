@@ -15,7 +15,9 @@ from fyp_sim.benchmarks.system_info import collect_machine_specs
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.runners.csv_io import write_run_log_csv, write_summary_csv
-from fyp_sim.simulation.engine import StepLog, run_simulation
+from fyp_sim.simulation.engine import StepLog
+from fyp_sim.simulation.engine import run_simulation as run_simulation_baseline
+from fyp_sim.simulation.engine_opt import run_simulation_opt
 from fyp_sim.taxonomy import TOPIC_CATEGORIES
 
 _TOPIC_WEIGHTS: dict[str, float] = {
@@ -137,6 +139,7 @@ def run_trials(
     cfg: dict[str, Any],
     pool: list[Video],
     console: ConsoleCapture,
+    run_sim_fn,
 ) -> tuple[list[StepLog], TimingStats]:
     timings: list[float] = []
     logs_first: list[StepLog] | None = None
@@ -146,7 +149,7 @@ def run_trials(
         rng = random.Random(params.seed)
 
         t0 = time.perf_counter()
-        logs = run_simulation(
+        logs = run_sim_fn(
             user=user,
             video_pool=pool,
             steps=params.steps,
@@ -181,6 +184,7 @@ def write_outputs(
     params: BenchmarkParams,
     stats: TimingStats,
     console: ConsoleCapture,
+    engine_name: str,
     phase_timer: PhaseTimer | None = None,
 ) -> None:
     export_t0 = time.perf_counter()
@@ -224,6 +228,7 @@ def write_outputs(
             "Corpus generation + file writes happen outside the timed section."
         ),
     }
+    manifest["benchmark"]["engine"] = engine_name
     artefacts.manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -244,7 +249,7 @@ def write_outputs(
         )
 
 
-def parse_args() -> tuple[BenchmarkParams, bool]:
+def parse_args() -> tuple[BenchmarkParams, bool, str]:
     p = argparse.ArgumentParser(
         description="NFR-02 benchmark: 1000 steps with corpus N=1000 under 1s (3 runs)."
     )
@@ -261,6 +266,12 @@ def parse_args() -> tuple[BenchmarkParams, bool]:
         action="store_true",
         help="Write perf_breakdown.json with per-phase timings (includes one extra untimed run).",
     )
+    p.add_argument(
+        "--engine",
+        choices=["baseline", "opt"],
+        default="baseline",
+        help="Which simulation implementation to benchmark.",
+    )
 
     args = p.parse_args()
     params = BenchmarkParams(
@@ -274,14 +285,17 @@ def parse_args() -> tuple[BenchmarkParams, bool]:
         outputs_root=Path(args.outputs_root),
     )
     params.validate()
-    return params, bool(args.profile_phases)
+    return params, bool(args.profile_phases), str(args.engine)
 
 
 def main() -> None:
-    params, profile_phases = parse_args()
+    params, profile_phases, engine_name = parse_args()
 
     cfg = build_benchmark_config(params)
+    cfg["engine"] = engine_name
     _fail_fast_old_alpha(cfg, cfg_path=None)
+
+    run_sim_fn = run_simulation_opt if engine_name == "opt" else run_simulation_baseline
 
     # Build corpus once (outside timed section) to benchmark simulation loop throughput.
     pool = build_video_pool(cfg, expected_n=params.n_videos)
@@ -307,7 +321,7 @@ def main() -> None:
         phase_timer = PhaseTimer()
         user = build_user(cfg)
         rng = random.Random(params.seed)
-        _ = run_simulation(
+        _ = run_sim_fn(
             user=user,
             video_pool=pool,
             steps=params.steps,
@@ -320,7 +334,13 @@ def main() -> None:
             viewpoint_drift_rate=0.0,
             phase_tracer=phase_timer,
         )
-    logs_first, stats = run_trials(params, cfg=cfg, pool=pool, console=console)
+    logs_first, stats = run_trials(
+        params,
+        cfg=cfg,
+        pool=pool,
+        console=console,
+        run_sim_fn=run_sim_fn,
+    )
     print_results(console, stats)
 
     write_outputs(
@@ -332,6 +352,7 @@ def main() -> None:
         params=params,
         stats=stats,
         console=console,
+        engine_name=engine_name,
         phase_timer=phase_timer,
     )
 
