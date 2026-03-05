@@ -36,13 +36,24 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Run a seed sweep for a single experiment config.")
     p.add_argument("config", nargs="?", type=Path, default=Path("configs/experiment_baseline.json"))
     p.add_argument("--legacy", action="store_true", help="Write outputs to legacy locations.")
+    p.add_argument(
+        "--engine",
+        choices=["baseline", "opt"],
+        default=None,
+        help="Override cfg.engine for this run (baseline or opt).",
+    )
     args = p.parse_args()
 
     cfg_path = args.config
     cfg = load_config(cfg_path)
     _fail_fast_old_alpha(cfg, cfg_path)
 
+    if args.engine is not None:
+        cfg["engine"] = str(args.engine)
+
     if args.legacy:
+        if args.engine == "opt":
+            raise ValueError("--engine is not supported with --legacy")
         out_dir, summary_path = run_seed_sweep_legacy(cfg, cfg_path=cfg_path)
         print(f"Wrote per-run logs to: {out_dir}")
         print(f"Wrote summary to: {summary_path}")
