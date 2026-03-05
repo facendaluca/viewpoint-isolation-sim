@@ -22,6 +22,7 @@
     "interest_decay": 0.02,
     "interest_normalise": false,
     "interest_prune_below": 0.001,
+    "engine": "baseline",
     "seeds": [
         0,
         1,

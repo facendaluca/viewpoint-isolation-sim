@@ -3,6 +3,7 @@
   "policy": { "mode": "heuristic", "curiosity": 0.30 },
 
   "steps": 200,
+  "engine": "baseline",
   "top_k": 5,
   "rank_alpha": 0.30,
 
