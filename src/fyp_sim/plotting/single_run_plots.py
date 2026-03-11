@@ -9,19 +9,20 @@ matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .common import (
-    LockInEpisode,
-    detect_lock_in_episodes,
-    ensure_dir,
-    first_seed_run_log,
-    load_run_log_df,
-    load_run_plot_params,
-    seed_dirs,
+from .common import LockInEpisode
+from .plot_utils import (
+    add_annotation_box,
+    add_figure_subtitle,
+    format_lockin_summary,
+    save_figure_both_formats,
 )
-from .plot_utils import format_lockin_summary, format_run_subtitle, save_figure_both_formats
-
-ACTION_ORDER = ("Watch", "Sample", "Avoid")
-ROLLING_WINDOW = 25
+from .single_run_metrics import (
+    ACTION_ORDER,
+    ActionDistributionData,
+    build_single_run_context,
+    compute_action_distribution,
+    write_lockin_summary_csv,
+)
 
 
 def plot_vii_trajectory(
@@ -64,36 +65,32 @@ def plot_vii_trajectory(
 
 def plot_action_distribution(
     *,
-    df: pd.DataFrame,
+    step_ids: pd.Series,
+    action_data: ActionDistributionData,
     out_path: Path,
     subtitle: str,
 ) -> None:
     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(13, 4.8))
 
-    action_series = df["user_action"].astype(str).str.title()
-    proportions = action_series.value_counts(normalize=True)
-
     ax_left.bar(
         list(ACTION_ORDER),
-        [float(proportions.get(action, 0.0)) for action in ACTION_ORDER],
+        [action_data.proportions.get(action, 0.0) for action in ACTION_ORDER],
     )
     ax_left.set_ylim(0.0, 1.0)
     ax_left.set_ylabel("Proportion")
     ax_left.set_title("Overall action mix")
 
-    window = min(ROLLING_WINDOW, max(1, len(df)))
     for action in ACTION_ORDER:
-        rate = action_series.eq(action).astype(float).rolling(window, min_periods=1).mean()
-        ax_right.plot(df["step_id"], rate, label=action)
+        ax_right.plot(step_ids, action_data.rolling_rates[action], label=action)
 
     ax_right.set_ylim(0.0, 1.0)
     ax_right.set_xlabel("Step ID")
-    ax_right.set_ylabel(f"Rolling rate (window={window})")
+    ax_right.set_ylabel(f"Rolling rate (window={action_data.window})")
     ax_right.set_title("Rolling action rates")
     ax_right.legend(loc="upper right")
 
-    fig.suptitle("Figure B - Action distribution over time", y=0.98)
-    fig.text(0.5, 0.92, subtitle, ha="center", va="center", fontsize=10)
+    fig.suptitle("Figure B — Action distribution over time", y=0.98)
+    add_figure_subtitle(fig, subtitle, y=0.92)
 
     fig.tight_layout(rect=[0, 0, 1, 0.88])
     save_figure_both_formats(fig, out_path)
@@ -118,6 +115,13 @@ def plot_lockin_episodes(
         label="Viewpoint distance (VII_t)",
         zorder=3,
     )
+    ax.axhline(
+        threshold,
+        linestyle="--",
+        linewidth=1.4,
+        label=f"Bubble threshold ({threshold:.2f})",
+        zorder=2,
+    )
 
     for idx, episode in enumerate(episodes):
         label = "Detected lock-in episode" if idx == 0 else None
@@ -132,6 +136,7 @@ def plot_lockin_episodes(
     if episodes:
         first_start = episodes[0].start_step
         ax.axvline(
+            first_start,
             linestyle=":",
             linewidth=1.4,
             label="First lock-in start",
@@ -145,31 +150,29 @@ def plot_lockin_episodes(
             fontsize=9,
         )
     else:
-        ax.text(
-            0.02,
-            0.90,
+        add_annotation_box(
+            ax,
             "No lock-in episodes detected",
-            transform=ax.transAxes,
+            x=0.02,
+            y=0.90,
+            va="top",
             fontsize=10,
-            bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.9},
         )
 
-    ax.text(
-        0.02,
-        0.98,
+    add_annotation_box(
+        ax,
         format_lockin_summary(summary),
-        transform=ax.transAxes,
+        x=0.02,
+        y=0.98,
         va="top",
-        ha="left",
         fontsize=10,
-        bbox={"boxstyle": "round,pad=0.35", "facecolor": "white", "alpha": 0.9},
     )
 
     ax.set_xlabel("Step ID")
     ax.set_ylabel("Viewpoint distance (VII_t; lower = stronger isolation)")
     ax.set_ylim(0.0, 1.0)
-    ax.set_title("Figure C - Operational lock-in over time", pad=18)
-    fig.text(0.5, 0.94, subtitle, ha="center", va="center", fontsize=10)
+    ax.set_title("Figure C — Operational lock-in over time", pad=18)
+    add_figure_subtitle(fig, subtitle, y=0.94)
     ax.legend(loc="upper right")
 
     fig.tight_layout(rect=[0, 0, 1, 0.92])
@@ -177,81 +180,29 @@ def plot_lockin_episodes(
     plt.close(fig)
 
 
-def write_lockin_summary_csv(run_dir: Path) -> Path:
-    params = load_run_plot_params(run_dir)
-    rows: list[dict[str, int | float | str]] = []
-
-    for seed_dir in seed_dirs(run_dir):
-        run_log_path = seed_dir / "run_log.csv"
-        if not run_log_path.exists():
-            raise FileNotFoundError(f"Expected run_log.csv at: {run_log_path}")
-
-        df = load_run_log_df(run_log_path, run_dir=run_dir)
-        _, summary = detect_lock_in_episodes(
-            df,
-            threshold=params.threshold,
-            persistence_window=params.persistence_window,
-        )
-
-        rows.append(
-            {
-                "seed": seed_dir.name,
-                "time_to_lock_in": summary["time_to_lock_in"],
-                "n_lockin_episodes": summary["n_lockin_episodes"],
-                "total_lockin_steps": summary["total_lockin_steps"],
-                "filter_bubble_threshold": params.threshold,
-                "persistence_window": params.persistence_window,
-            }
-        )
-
-    out_path = run_dir / "lockin_summary.csv"
-    pd.DataFrame(rows).sort_values("seed").to_csv(out_path, index=False)
-    return out_path
-
-
 def plot_single_run_figures(run_dir: Path) -> Path:
-    out_dir = run_dir / "plots"
-    ensure_dir(out_dir)
-
-    params = load_run_plot_params(run_dir)
-    primary_run_log = first_seed_run_log(run_dir)
-    primary_seed = primary_run_log.parent.name
-
-    df = load_run_log_df(primary_run_log, run_dir=run_dir)
-
-    subtitle = format_run_subtitle(
-        seed_label=primary_seed,
-        threshold=params.threshold,
-        persistence_window=params.persistence_window,
-        steps=params.steps,
-        rank_alpha=params.rank_alpha,
-        drift_alpha=params.drift_alpha,
-    )
-
-    episodes, summary = detect_lock_in_episodes(
-        df,
-        threshold=params.threshold,
-        persistence_window=params.persistence_window,
-    )
+    context = build_single_run_context(run_dir)
+    action_data = compute_action_distribution(context.df)
 
     plot_vii_trajectory(
-        df=df,
-        out_path=out_dir / "figure_a_vii_trajectory.png",
-        threshold=params.threshold,
-        subtitle=subtitle,
+        df=context.df,
+        out_path=context.out_dir / "figure_a_vii_trajectory.png",
+        threshold=context.params.threshold,
+        subtitle=context.subtitle,
     )
     plot_action_distribution(
-        df=df,
-        out_path=out_dir / "figure_b_action_distribution.png",
-        subtitle=subtitle,
+        step_ids=context.df["step_id"],
+        action_data=action_data,
+        out_path=context.out_dir / "figure_b_action_distribution.png",
+        subtitle=context.subtitle,
     )
     plot_lockin_episodes(
-        df=df,
-        out_path=out_dir / "figure_c_lockin_episodes.png",
-        threshold=params.threshold,
-        episodes=episodes,
-        summary=summary,
-        subtitle=subtitle,
+        df=context.df,
+        out_path=context.out_dir / "figure_c_lockin_episodes.png",
+        threshold=context.params.threshold,
+        episodes=context.episodes,
+        summary=context.lockin_summary,
+        subtitle=context.subtitle,
     )
     write_lockin_summary_csv(run_dir)
-    return out_dir
+    return context.out_dir

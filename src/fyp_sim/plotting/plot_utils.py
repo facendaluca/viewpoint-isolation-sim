@@ -2,12 +2,51 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
+DEFAULT_DPI = 300
+DEFAULT_TEXTBOX_STYLE = {
+    "boxstyle": "round, pad=0.35",
+    "facecolor": "white",
+    "alpha": 0.9,
+}
 
 
-def save_figure_both_formats(fig: plt.Figure, out_path: Path) -> None:
-    fig.savefig(out_path, dpi=300, bbox_inches="tight")
+def save_figure_both_formats(fig: Figure, out_path: Path) -> None:
+    fig.savefig(out_path, dpi=DEFAULT_DPI, bbox_inches="tight")
     fig.savefig(out_path.with_suffix(".pdf"), bbox_inches="tight")
+
+
+def add_figure_subtitle(
+    fig: Figure,
+    text: str,
+    *,
+    y: float,
+    fontsize: int = 10,
+) -> None:
+    fig.text(0.5, y, text, ha="center", va="center", fontsize=fontsize)
+
+
+def add_annotation_box(
+    ax: Axes,
+    text: str,
+    *,
+    x: float = 0.02,
+    y: float = 0.98,
+    va: str = "top",
+    fontsize: int = 10,
+) -> None:
+    ax.text(
+        x,
+        y,
+        text,
+        transform=ax.transAxes,
+        va=va,
+        ha="left",
+        fontsize=fontsize,
+        bbox=DEFAULT_TEXTBOX_STYLE,
+    )
 
 
 def format_lockin_summary(summary: dict[str, int]) -> str:
