@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from .compare import make_compare_plot
-from .heatmaps import heatmap
+from .single_run_plots import plot_single_run_figures, write_lockin_summary_csv
 
-__all__ = ["make_compare_plot", "heatmap"]
+__all__ = [
+    "plot_single_run_figures",
+    "write_lockin_summary_csv",
+]
