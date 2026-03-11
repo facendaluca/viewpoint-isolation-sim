@@ -83,3 +83,26 @@ def format_run_subtitle(
         parts.append(f"drift_alpha={drift_alpha:.2f}")
 
     return ", ".join(parts)
+
+
+def format_multi_run_subtitle(
+    *,
+    n_seeds: int,
+    threshold: float,
+    steps: int | None,
+    rank_alpha: float | None,
+    drift_alpha: float | None,
+) -> str:
+    parts = [
+        f"n_seeds={n_seeds}",
+        f"threshold={threshold:.2f}",
+    ]
+
+    if steps is not None:
+        parts.append(f"steps={steps}")
+    if rank_alpha is not None:
+        parts.append(f"rank_alpha={rank_alpha:.2f}")
+    if drift_alpha is not None:
+        parts.append(f"drift_alpha={drift_alpha:.2f}")
+
+    return ", ".join(parts)
