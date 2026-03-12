@@ -10,30 +10,7 @@ import matplotlib.pyplot as plt
 
 from .common import ensure_dir, load_run_plot_params, seed_dirs
 from .multi_run_metrics import build_multi_run_vii_summary, write_multi_run_summary_csv
-from .plot_utils import save_figure_both_formats
-
-
-def _format_multi_run_subtitle(
-    *,
-    n_seeds: int,
-    threshold: float,
-    steps: int | None,
-    rank_alpha: float | None,
-    drift_alpha: float | None,
-) -> str:
-    parts = [
-        f"n_seeds={n_seeds}",
-        f"threshold={threshold:.2f}",
-    ]
-
-    if steps is not None:
-        parts.append(f"steps={steps}")
-    if rank_alpha is not None:
-        parts.append(f"rank_alpha={rank_alpha:.2f}")
-    if drift_alpha is not None:
-        parts.append(f"drift_alpha={drift_alpha:.2f}")
-
-    return ", ".join(parts)
+from .plot_utils import _format_multi_run_subtitle, save_figure_both_formats
 
 
 def plot_multi_run_variability(run_dir: Path) -> Path | None:

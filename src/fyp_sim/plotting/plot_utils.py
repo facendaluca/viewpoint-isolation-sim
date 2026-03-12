@@ -85,19 +85,22 @@ def format_run_subtitle(
     return ", ".join(parts)
 
 
-def format_multi_run_subtitle(
+def _format_multi_run_subtitle(
     *,
     n_seeds: int,
     threshold: float,
     steps: int | None,
     rank_alpha: float | None,
     drift_alpha: float | None,
+    persistence_window: int | None = None,
 ) -> str:
     parts = [
         f"n_seeds={n_seeds}",
         f"threshold={threshold:.2f}",
     ]
 
+    if persistence_window is not None:
+        parts.append(f"persistence_window={persistence_window}")
     if steps is not None:
         parts.append(f"steps={steps}")
     if rank_alpha is not None:
