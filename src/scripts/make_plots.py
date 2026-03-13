@@ -26,7 +26,9 @@ def main() -> None:
     if is_multi_agent:
         out_dir = plot_multi_agent_figures(args.run_dir)
         print(f"Wrote multi-agent phenotype figures to: {out_dir}")
-        print(f"Wrote phenotype lock-in summary to: {args.run_dir / 'lockin_summary.csv'}")
+        print(
+            f"Wrote phenotype lock-in summary to: {args.run_dir / 'phenotype_lockin_summary.csv'}"
+        )
     else:
         out_dir = plot_single_run_figures(args.run_dir)
         print(f"Wrote single-agent plots to: {out_dir}")

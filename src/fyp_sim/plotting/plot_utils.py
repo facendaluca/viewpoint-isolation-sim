@@ -85,7 +85,7 @@ def format_run_subtitle(
     return ", ".join(parts)
 
 
-def _format_multi_run_subtitle(
+def format_experiment_subtitle(
     *,
     n_seeds: int,
     threshold: float,

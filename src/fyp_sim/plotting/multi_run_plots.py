@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from .common import ensure_dir, load_run_plot_params, seed_dirs
 from .multi_run_metrics import build_multi_run_vii_summary, write_multi_run_summary_csv
-from .plot_utils import _format_multi_run_subtitle, save_figure_both_formats
+from .plot_utils import format_experiment_subtitle, save_figure_both_formats
 
 
 def plot_multi_run_variability(run_dir: Path) -> Path | None:
@@ -24,7 +24,7 @@ def plot_multi_run_variability(run_dir: Path) -> Path | None:
     params = load_run_plot_params(run_dir)
     summary = build_multi_run_vii_summary(run_dir)
 
-    subtitle = _format_multi_run_subtitle(
+    subtitle = format_experiment_subtitle(
         n_seeds=len(run_seed_dirs),
         threshold=params.threshold,
         steps=params.steps,

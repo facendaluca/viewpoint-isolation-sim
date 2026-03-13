@@ -37,6 +37,39 @@ def _load_multi_agent_seed_df(run_dir: Path, seed_dir: Path) -> pd.DataFrame:
     return out
 
 
+def _compute_ci_bounds(
+    *,
+    mean_series: pd.Series,
+    std_series: pd.Series,
+    n_series: pd.Series,
+) -> tuple[pd.Series, pd.Series]:
+    sqrt_n = n_series.where(n_series > 0, 1).astype(float).pow(0.5)
+    stderr = std_series / sqrt_n
+    ci_half_width = (1.96 * stderr).where(n_series > 1, 0.0)
+
+    lower = (mean_series - ci_half_width).clip(0.0, 1.0)
+    upper = (mean_series + ci_half_width).clip(0.0, 1.0)
+    return lower, upper
+
+
+def _build_step_action_shares(group: pd.DataFrame) -> pd.DataFrame:
+    action_counts = (
+        group.assign(action=group["user_action"].astype(str).str.title())
+        .groupby(["step_id", "action"], sort=True)
+        .size()
+        .unstack(fill_value=0)
+        .reindex(columns=list(ACTION_ORDER), fill_value=0)
+        .sort_index()
+    )
+
+    totals = action_counts.sum(axis=1).astype(float)
+    totals = totals.where(totals > 0, 1.0)
+
+    action_shares = action_counts.div(totals, axis=0)
+    action_shares.index.name = "step_id"
+    return action_shares.reset_index()
+
+
 def has_multi_agent_run(run_dir: Path) -> bool:
     first_seed_dir = seed_dirs(run_dir)[0]
     df = _load_multi_agent_seed_df(run_dir, first_seed_dir)
@@ -126,6 +159,67 @@ def build_phenotype_action_summary(run_dir: Path) -> pd.DataFrame:
     return summary
 
 
+def build_phenotype_action_dynamics_summary(
+    run_dir: Path,
+    *,
+    rolling_window: int | None = None,
+) -> pd.DataFrame:
+    params = load_run_plot_params(run_dir)
+    resolved_window = max(1, int(rolling_window or params.persistence_window))
+
+    rows: list[pd.DataFrame] = []
+
+    for seed_dir in seed_dirs(run_dir):
+        df = _load_multi_agent_seed_df(run_dir, seed_dir)
+
+        for phenotype, group in df.groupby("phenotype", sort=False):
+            step_action_shares = _build_step_action_shares(group)
+
+            for action in ACTION_ORDER:
+                action_rate = (
+                    step_action_shares[action]
+                    .astype(float)
+                    .rolling(window=resolved_window, min_periods=1)
+                    .mean()
+                )
+
+                action_df = pd.DataFrame(
+                    {
+                        "seed": seed_dir.name,
+                        "phenotype": phenotype,
+                        "step_id": step_action_shares["step_id"].astype(int),
+                        "action": action,
+                        "action_rate": action_rate,
+                    }
+                )
+                rows.append(action_df)
+
+    if not rows:
+        raise ValueError(f"No multi-agent action-dynamics rows found in: {run_dir}")
+
+    seed_level = pd.concat(rows, ignore_index=True)
+
+    summary = (
+        seed_level.groupby(["phenotype", "action", "step_id"], as_index=False)
+        .agg(
+            n_seeds=("seed", "nunique"),
+            action_rate_mean=("action_rate", "mean"),
+            action_rate_std=("action_rate", lambda s: s.std(ddof=1) if len(s) > 1 else 0.0),
+        )
+        .sort_values(["phenotype", "action", "step_id"], kind="stable")
+        .reset_index(drop=True)
+    )
+
+    summary["action_rate_ci_lower"], summary["action_rate_ci_upper"] = _compute_ci_bounds(
+        mean_series=summary["action_rate_mean"],
+        std_series=summary["action_rate_std"],
+        n_series=summary["n_seeds"],
+    )
+    summary["rolling_window"] = resolved_window
+
+    return summary
+
+
 def build_phenotype_lockin_data(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     params = load_run_plot_params(run_dir)
 
@@ -183,6 +277,19 @@ def build_phenotype_lockin_data(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFra
         )
 
     return summary_df, episodes_df
+
+
+def build_phenotype_lockin_outcome_summary(run_dir: Path) -> pd.DataFrame:
+    summary_df, _ = build_phenotype_lockin_data(run_dir)
+
+    outcomes = summary_df.copy()
+    outcomes["locked_in"] = outcomes["time_to_lock_in"].astype(float).ge(0)
+    outcomes["time_to_lock_in_plot"] = outcomes["time_to_lock_in"].where(
+        outcomes["locked_in"],
+        float("nan"),
+    )
+
+    return outcomes
 
 
 def write_phenotype_lockin_summary_csv(run_dir: Path) -> Path:
