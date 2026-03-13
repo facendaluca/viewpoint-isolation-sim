@@ -72,8 +72,18 @@ def _build_step_action_shares(group: pd.DataFrame) -> pd.DataFrame:
 
 def has_multi_agent_run(run_dir: Path) -> bool:
     first_seed_dir = seed_dirs(run_dir)[0]
-    df = _load_multi_agent_seed_df(run_dir, first_seed_dir)
-    return df["phenotype"].nunique() > 1
+    run_log_path = first_seed_dir / "run_log.csv"
+
+    if not run_log_path.exists():
+        raise FileNotFoundError(f"Expected run_log.csv at: {run_log_path}")
+
+    df = load_run_log_df(run_log_path, run_dir=run_dir)
+
+    if "agent_id" not in df.columns:
+        return False
+
+    phenotypes = df["agent_id"].map(_normalise_phenotype).dropna().unique()
+    return len(phenotypes) > 1
 
 
 def build_phenotype_seed_trajectories(run_dir: Path) -> pd.DataFrame:
