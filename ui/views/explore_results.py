@@ -5,6 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from ui.app_state import available_runs, get_state, resolve_repo_path, set_state
+from ui.figure_browser import list_plot_images, render_figure_browser
 from ui.results_io import read_csv_head, read_json
 from ui.run_inspector import (
     find_config_file,
@@ -39,12 +40,17 @@ def render_overview(
     else:
         st.warning("Manifest file not found (this directory may not be a valid run).")
 
+    plot_count = len(list_plot_images(plots_dir))
+
     st.subheader("Expected artefacts")
     cols = st.columns(3)
     cols[0].write(f"- config file: {'exists' if config_path else 'missing'}")
     cols[1].write(f"- manifest file: {'exists' if manifest_path else 'missing'}")
     cols[2].write(f"- summary.csv: {'exists' if summary_path else 'missing'}")
-    st.write(f"- plots/: {'exists' if plots_dir.is_dir() else 'missing'}")
+    st.write(
+        f"- plots/: {'exists' if plots_dir.is_dir() else 'missing'}"
+        f"{f' ({plot_count} image files)' if plots_dir.is_dir() else ''}"
+    )
     st.write(f"- seeds/: {'exists' if seeds_dir.is_dir() else 'missing'}")
 
 
@@ -194,7 +200,7 @@ def render() -> None:
 
     render_debug_paths(run_dir, config_path, manifest_path, summary_path)
 
-    tabs = st.tabs(["Overview", "Config", "Manifest", "Summary", "Seeds", "Files"])
+    tabs = st.tabs(["Overview", "Config", "Manifest", "Summary", "Seeds", "Plots", "Files"])
 
     with tabs[0]:
         render_overview(run_dir, manifest_path, config_path, summary_path, plots_dir, seeds_dir)
@@ -212,4 +218,7 @@ def render() -> None:
         render_seeds(run_dir)
 
     with tabs[5]:
+        render_figure_browser(plots_dir)
+
+    with tabs[6]:
         render_files(run_dir)
