@@ -22,7 +22,7 @@ def main() -> None:
         raise SystemExit(str(e)) from e
 
     plots_dir = args.run_dir / "plots"
-    print(f"Wrote {len(plot_files)} from plot image(s) to: {plots_dir}")
+    print(f"Wrote {len(plot_files)} plot image(s) to: {plots_dir}")
     for path in plot_files:
         print(f"- {path.relative_to(args.run_dir)}")
 

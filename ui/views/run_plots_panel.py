@@ -4,7 +4,12 @@ from datetime import datetime
 
 import streamlit as st
 
-from fyp_sim.plotting.generation import PlotGenerationError, generate_plots_for_run, get_plot_status
+from fyp_sim.plotting.generation import (
+    PlotGenerationError,
+    generate_plots_for_run,
+    get_plot_status,
+    validate_run_for_plot_generation,
+)
 from ui.figure_browser import render_figure_browser
 from ui.run_context import RunContext
 
@@ -19,6 +24,14 @@ def _store_success_flash(ctx: RunContext, plot_count: int) -> None:
         "timestamp": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z"),
         "count": plot_count,
     }
+
+
+def _get_preflight_error(ctx: RunContext) -> str | None:
+    try:
+        validate_run_for_plot_generation(ctx.run_dir)
+    except PlotGenerationError as e:
+        return str(e)
+    return None
 
 
 def _render_success_flash(ctx: RunContext) -> None:
@@ -50,6 +63,13 @@ def _render_status_summary(ctx: RunContext) -> None:
 
 
 def _render_generation_controls(ctx: RunContext) -> None:
+    preflight_error = _get_preflight_error(ctx)
+
+    if preflight_error is None:
+        st.info("This run has the required inputs for plot generation.")
+    else:
+        st.warning(preflight_error)
+
     overwrite = st.checkbox(
         "Regenerate (overwrite)",
         value=False,
@@ -58,14 +78,14 @@ def _render_generation_controls(ctx: RunContext) -> None:
 
     button_label = "Regenerate plots" if overwrite else "Generate plots"
 
-    if not st.button(button_label):
+    if not st.button(button_label, disabled=preflight_error is not None):
         return
 
     try:
         with st.spinner("Generating plots for the selected run..."):
             plot_files = generate_plots_for_run(ctx.run_dir, overwrite=overwrite)
-    except PlotGenerationError as e:
-        st.error(f"Plot generation failed: {e}")
+    except PlotGenerationError as exc:
+        st.error(f"Plot generation failed: {exc}")
         return
     except Exception:
         st.error(
