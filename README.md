@@ -41,7 +41,7 @@ To generate plots for a specific run directory:
 ```bash
 python -m src.scripts.make_plots --run-dir outputs/runs/YYYYMMDD/<run_id>
 ```
-*Note: Scripts support a `--legacy` flag to output directly to the legacy `results/` folder.*
+Plots can also be generated from the Streamlit dashboard: open **Explore Results**, select a run directory, then use the **Plots** tab to generate or regenerate plot outputs for that run.
 
 ## Dashboard / UI
 An interactive Streamlit dashboard is available to run and explore experiments. Launch it via:
@@ -58,7 +58,7 @@ outputs/runs/20260223/153022Z_baseline_a1b2c3d4/
 ├── config_resolved.json   # Snapshot of the full run config
 ├── manifest.json          # High-level metadata (seeds, key params)
 ├── summary.csv            # Aggregated metrics across all seeds
-├── plots/                 # Generated plots (empty until make_plots is run)
+├── plots/                 # Generated plots (empty until plots are generated via CLI or dashboard)
 └── seeds/
     ├── s00042/
     │   └── run_log.csv    # Step-by-step engagement log for seed

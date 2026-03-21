@@ -142,7 +142,7 @@ def _render_gallery(
 
 def render_figure_browser(plots_dir: Path) -> None:
     """Render a reusable figure browser for a runs plot directory."""
-    st.subheader("Plots")
+    st.subheader("Figure browser")
 
     if not plots_dir.is_dir():
         st.info("No plots directory found for this run.")
