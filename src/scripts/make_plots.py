@@ -3,16 +3,11 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from fyp_sim.plotting.multi_agent_metrics import has_multi_agent_run
-from fyp_sim.plotting.multi_agent_plots import plot_multi_agent_figures
-from fyp_sim.plotting.multi_run_plots import plot_multi_run_variability
-from fyp_sim.plotting.single_run_plots import plot_single_run_figures
+from fyp_sim.plotting.generation import PlotGenerationError, generate_plots_for_run
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Generate dissertation-aligned plots for a single run artefact directory."
-    )
+    p = argparse.ArgumentParser(description="Generate plots for a single run artefact directory.")
     p.add_argument(
         "--run-dir",
         type=Path,
@@ -21,23 +16,15 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    is_multi_agent = has_multi_agent_run(args.run_dir)
+    try:
+        plot_files = generate_plots_for_run(args.run_dir, overwrite=True)
+    except PlotGenerationError as e:
+        raise SystemExit(str(e)) from e
 
-    if is_multi_agent:
-        out_dir = plot_multi_agent_figures(args.run_dir)
-        print(f"Wrote multi-agent phenotype figures to: {out_dir}")
-        print(
-            f"Wrote phenotype lock-in summary to: {args.run_dir / 'phenotype_lockin_summary.csv'}"
-        )
-    else:
-        out_dir = plot_single_run_figures(args.run_dir)
-        print(f"Wrote single-agent plots to: {out_dir}")
-        print(f"Wrote lock-in summary to: {args.run_dir / 'lockin_summary.csv'}")
-
-    multi_run_path = plot_multi_run_variability(args.run_dir)
-    if multi_run_path is not None:
-        print(f"Wrote multi-run variability figure to: {multi_run_path}")
-        print(f"Wrote multi-run summary to: {args.run_dir / 'multi_run_vii_summary.csv'}")
+    plots_dir = args.run_dir / "plots"
+    print(f"Wrote {len(plot_files)} from plot image(s) to: {plots_dir}")
+    for path in plot_files:
+        print(f"- {path.relative_to(args.run_dir)}")
 
 
 if __name__ == "__main__":
