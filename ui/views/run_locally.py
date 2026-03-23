@@ -13,6 +13,7 @@ from ui.run_local_sections import (
     render_advanced_json_section,
     render_bounded_form,
     render_execution_mode,
+    render_failed_state,
     render_preset_selector,
     render_resolved_config_preview,
     render_run_action_panel,
@@ -95,17 +96,33 @@ def render() -> None:
     render_resolved_config_preview(not build_result.errors, resolved_cfg, cfg_path_str)
 
     # 7. Run
-    run_clicked = render_run_action_panel(resolved_ok, state.selected_run_dir)
+    run_clicked = render_run_action_panel(resolved_ok, state.selected_run_dir, exec_mode)
 
     if run_clicked and resolved_ok and resolved_cfg:
         progress = StreamlitProgress() if exec_mode == ExecutionMode.REAL else None
-        try:
-            result = execute_run(
-                resolved_cfg=resolved_cfg, cfg_path=cfg_path_str, mode=exec_mode, progress=progress
-            )
-        except Exception as e:
-            st.error(f"Run failed: {e}")
-            return
+
+        if exec_mode == ExecutionMode.PLACEHOLDER:
+            running_label = "Writing placeholder artefacts..."
+            completed_label = "Placeholder run completed!"
+            failed_label = "Placeholder run failed"
+        else:
+            running_label = "Running simulation..."
+            completed_label = "Simulation run completed!"
+            failed_label = "Simulation run failed"
+
+        with st.status(running_label, expanded=True) as status:
+            try:
+                result = execute_run(
+                    resolved_cfg=resolved_cfg,
+                    cfg_path=cfg_path_str,
+                    mode=exec_mode,
+                    progress=progress,
+                )
+                status.update(label=completed_label, state="complete", expanded=False)
+            except Exception as e:
+                status.update(label=failed_label, state="error", expanded=True)
+                render_failed_state(e)
+                return
 
         if exec_mode == ExecutionMode.REAL:
             render_run_feedback(str(result.run_dir), check_run_outputs(result.run_dir))

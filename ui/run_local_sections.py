@@ -4,6 +4,7 @@ from typing import Any
 
 import streamlit as st
 
+from ui.run_execution import ExecutionMode
 from ui.run_local_catalog import FIELD_SPECS, PRESETS, BoundedParams
 
 
@@ -118,14 +119,21 @@ def render_resolved_config_preview(
             st.json(resolved_cfg)
 
 
-def render_run_action_panel(ready_to_run: bool, selected_run_dir: str | None) -> bool:
+def render_run_action_panel(
+    ready_to_run: bool, selected_run_dir: str | None, exec_mode: ExecutionMode
+) -> bool:
     st.divider()
     st.subheader("Run")
 
-    st.caption(
-        "Placeholder mode writes config_resolved.json + manifest.json only,\n"
-        "Real mode runs the simulation and writes real run_log.csv + summary.csv."
-    )
+    if exec_mode == ExecutionMode.PLACEHOLDER:
+        st.caption("Placeholder mode writes lightweight artefacts only.")
+    else:
+        st.caption("Real mode runs the simulation and produces real outputs.")
+
+    if ready_to_run:
+        st.success("Configuration validated and resolved. Ready to run.", icon="✅")
+    else:
+        st.info("Please resolve configuration issues above before running.", icon="ℹ️")
 
     col1, col2 = st.columns([1, 2], vertical_alignment="center")
 
@@ -140,7 +148,7 @@ def render_run_action_panel(ready_to_run: bool, selected_run_dir: str | None) ->
 
 def render_success_banner(last_run: str) -> None:
     """Show the post-run success notice and link to Explore Results."""
-    st.success(f"Created run: `{last_run}`")
+    st.success(f"**Run completed successfully.** Created run: `{last_run}`", icon="🎉")
     col_a, col_b = st.columns([1, 3], vertical_alignment="center")
     with col_a:
         st.page_link("pages/3_Explore_Results.py", label="Open Explore Results", icon="🔍")
@@ -176,3 +184,8 @@ def render_run_feedback(
         st.write(f"- **{iss.kind}**: `{iss.path}` - {iss.message}")
     if len(issues) > 8:
         st.caption(f"Showing 8 of {len(issues)} issues.")
+
+
+def render_failed_state(error: Exception) -> None:
+    """Show a clear error state when execution fails."""
+    st.error(f"**Run Failed**\n\nThe simulation encountered an error:\n`{error}`", icon="🚨")
