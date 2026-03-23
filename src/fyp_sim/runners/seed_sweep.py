@@ -73,6 +73,7 @@ def run_seed_sweep(
     *,
     cfg_path: Path | None,
     outputs_root: Path,
+    runner: str | None = None,
     progress_cb: Callable[[int, int, int], None] | None = None,
     force_heuristic: bool = False,
 ) -> Path:
@@ -145,6 +146,7 @@ def run_seed_sweep(
         mode=mode,
         seeds=seeds,
         outputs_root=outputs_root,
+        runner=runner,
         write_config_snapshot=True,
         corpus=pool,
     )
