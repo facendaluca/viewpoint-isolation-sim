@@ -47,13 +47,17 @@ def render_bounded_form(current_params: BoundedParams) -> BoundedParams:
     """Render basic widget inputs without any scenario free-text lookup. Return updated BoundedParams."""
     st.subheader("Basic Parameters")
 
+    def _safe_int(val: Any, default: int) -> int:
+        try:
+            return int(val) if val is not None else default
+        except (TypeError, ValueError):
+            return default
+
     col1, col2 = st.columns(2)
     with col1:
         steps_spec = FIELD_SPECS["steps"]
         steps = st.number_input(
-            steps_spec.label,
-            min_value=steps_spec.min_value,
-            max_value=steps_spec.max_value,
+            f"{steps_spec.label} ({steps_spec.bounds_text})",
             value=current_params.steps,
             step=steps_spec.step,
             help=steps_spec.help_text,
@@ -61,9 +65,7 @@ def render_bounded_form(current_params: BoundedParams) -> BoundedParams:
     with col2:
         top_k_spec = FIELD_SPECS["top_k"]
         top_k = st.number_input(
-            top_k_spec.label,
-            min_value=top_k_spec.min_value,
-            max_value=top_k_spec.max_value,
+            f"{top_k_spec.label} ({top_k_spec.bounds_text})",
             value=current_params.top_k,
             step=top_k_spec.step,
             help=top_k_spec.help_text,
@@ -71,15 +73,17 @@ def render_bounded_form(current_params: BoundedParams) -> BoundedParams:
 
         seed_spec = FIELD_SPECS["seed"]
         seed = st.number_input(
-            seed_spec.label,
-            min_value=seed_spec.min_value,
-            max_value=seed_spec.max_value,
+            f"{seed_spec.label} ({seed_spec.bounds_text})",
             value=current_params.seed,
             step=seed_spec.step,
             help=seed_spec.help_text,
         )
 
-    return BoundedParams(steps=int(steps), top_k=int(top_k), seed=int(seed))
+    return BoundedParams(
+        steps=_safe_int(steps, current_params.steps),
+        top_k=_safe_int(top_k, current_params.top_k),
+        seed=_safe_int(seed, current_params.seed),
+    )
 
 
 def render_advanced_json_section(current_json: str) -> str:
@@ -146,14 +150,34 @@ def render_run_action_panel(
     return run_clicked
 
 
-def render_success_banner(last_run: str) -> None:
+def render_success_banner(last_run: str, run_mode: str | None = None) -> None:
     """Show the post-run success notice and link to Explore Results."""
+    if run_mode == "placeholder":
+        summary = (
+            "Placeholder run finished successfully. Outputs were created, "
+            "and this run is now selected for inspection."
+        )
+    elif run_mode == "real":
+        summary = (
+            "Real simulation run finished successfully. Outputs were created, "
+            "and this run is now selected for inspection."
+        )
+    else:
+        summary = "Run finished successfully and is now selected for inspection."
+
     st.success(f"**Run completed successfully.** Created run: `{last_run}`", icon="🎉")
-    col_a, col_b = st.columns([1, 3], vertical_alignment="center")
+
+    col_a, col_b = st.columns([2, 1], vertical_alignment="top")
     with col_a:
-        st.page_link("pages/3_Explore_Results.py", label="Open Explore Results", icon="🔍")
+        st.markdown("**Created run directory**")
+        st.code(last_run)
+        st.caption(summary)
+        st.caption("This run is now the selected run directory for the current session.")
+
     with col_b:
-        st.info("Go to **Explore Results** to browse the run directory.")
+        st.markdown("**Next step**")
+        st.page_link("pages/3_Explore_Results.py", label="Open Explore Results", icon="🔍")
+        st.info("Use Explore Results to inspect the outputs of this run.")
 
 
 def render_execution_mode() -> str:

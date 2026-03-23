@@ -36,8 +36,12 @@ def render() -> None:
     st.caption("UI-only page - execution happens in the backend entrypoint in src/.")
 
     last = st.session_state.pop("dashboard_last_created_run", None)
+    last_mode = st.session_state.pop("dashboard_last_run_mode", None)
     if isinstance(last, str) and last:
-        render_success_banner(last)
+        render_success_banner(
+            last,
+            run_mode=last_mode if isinstance(last_mode, str) else None,
+        )
 
     # 2. Init & execution mode
     init_page_state()
@@ -130,4 +134,5 @@ def render() -> None:
         created = to_display_path(result.run_dir)
         set_state(st.session_state, get_state(st.session_state).with_selected_run_dir(created))
         st.session_state["dashboard_last_created_run"] = created
+        st.session_state["dashboard_last_run_mode"] = exec_mode.value
         st.rerun()
