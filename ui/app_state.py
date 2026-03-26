@@ -37,12 +37,16 @@ class AppState:
     selected_run_dir: str | None = None
     selected_scenario: str = "experiment_baseline"
     params: dict[str, Any] = field(default_factory=dict)
+    selected_run_a: str | None = None
+    selected_run_b: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "selected_run_dir": self.selected_run_dir,
             "selected_scenario": self.selected_scenario,
             "params": dict(self.params),
+            "selected_run_a": self.selected_run_a,
+            "selected_run_b": self.selected_run_b,
         }
 
     @staticmethod
@@ -58,10 +62,20 @@ class AppState:
         params_raw = d.get("params", {})
         params = dict(params_raw) if isinstance(params_raw, dict) else {}
 
+        selected_run_a = d.get("selected_run_a")
+        if selected_run_a is not None and not isinstance(selected_run_a, str):
+            selected_run_a = str(selected_run_a)
+
+        selected_run_b = d.get("selected_run_b")
+        if selected_run_b is not None and not isinstance(selected_run_b, str):
+            selected_run_b = str(selected_run_b)
+
         return AppState(
             selected_run_dir=selected_run_dir,
             selected_scenario=selected_scenario,
             params=params,
+            selected_run_a=selected_run_a,
+            selected_run_b=selected_run_b,
         )
 
     def with_selected_run_dir(self, run_dir: str | None) -> AppState:
@@ -69,6 +83,8 @@ class AppState:
             selected_run_dir=run_dir,
             selected_scenario=self.selected_scenario,
             params=dict(self.params),  # type: ignore[arg-type]
+            selected_run_a=self.selected_run_a,
+            selected_run_b=self.selected_run_b,
         )
 
     def with_selected_scenario(self, scenario: str) -> AppState:
@@ -77,6 +93,8 @@ class AppState:
             selected_run_dir=self.selected_run_dir,
             selected_scenario=scenario,
             params=dict(self.params),
+            selected_run_a=self.selected_run_a,
+            selected_run_b=self.selected_run_b,
         )
 
     def with_params(self, params: dict[str, Any]) -> AppState:
@@ -84,6 +102,26 @@ class AppState:
             selected_run_dir=self.selected_run_dir,
             selected_scenario=self.selected_scenario,
             params=dict(params),
+            selected_run_a=self.selected_run_a,
+            selected_run_b=self.selected_run_b,
+        )
+
+    def with_selected_run_a(self, run_dir: str | None) -> AppState:
+        return AppState(
+            selected_run_dir=self.selected_run_dir,
+            selected_scenario=self.selected_scenario,
+            params=dict(self.params),
+            selected_run_a=run_dir,
+            selected_run_b=self.selected_run_b,
+        )
+
+    def with_selected_run_b(self, run_dir: str | None) -> AppState:
+        return AppState(
+            selected_run_dir=self.selected_run_dir,
+            selected_scenario=self.selected_scenario,
+            params=dict(self.params),
+            selected_run_a=self.selected_run_a,
+            selected_run_b=run_dir,
         )
 
 
