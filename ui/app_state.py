@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 _STATE_KEY = "examiner_dashboard_state_v1"
-
+_DEFAULT_SCENARIO = "E1_baseline_single_watcher"
 REPO_ROOT = Path(__file__).resolve().parents[1]  # repo/
 
 
@@ -35,7 +35,7 @@ class AppState:
     """
 
     selected_run_dir: str | None = None
-    selected_scenario: str = "experiment_baseline"
+    selected_scenario: str = _DEFAULT_SCENARIO
     params: dict[str, Any] = field(default_factory=dict)
     selected_run_a: str | None = None
     selected_run_b: str | None = None
@@ -55,9 +55,9 @@ class AppState:
         if selected_run_dir is not None and not isinstance(selected_run_dir, str):
             selected_run_dir = str(selected_run_dir)
 
-        selected_scenario = d.get("selected_scenario", "experiment_baseline")
+        selected_scenario = d.get("selected_scenario", _DEFAULT_SCENARIO)
         if not isinstance(selected_scenario, str) or not selected_scenario:
-            selected_scenario = "experiment_baseline"
+            selected_scenario = _DEFAULT_SCENARIO
 
         params_raw = d.get("params", {})
         params = dict(params_raw) if isinstance(params_raw, dict) else {}
@@ -88,7 +88,7 @@ class AppState:
         )
 
     def with_selected_scenario(self, scenario: str) -> AppState:
-        scenario = scenario.strip() or "experiment_baseline"
+        scenario = scenario.strip() or _DEFAULT_SCENARIO
         return AppState(
             selected_run_dir=self.selected_run_dir,
             selected_scenario=scenario,
@@ -185,13 +185,11 @@ def available_runs(base_dir: str | Path = "outputs/runs") -> list[str]:
 def available_scenarios(config_dir: str | Path = "configs") -> list[str]:
     """
     List scenario names based on config JSON files.
-    We return stems (e.g experiment_baseline) to keep it simple and stable.
     """
     cfg = resolve_repo_path(config_dir)
     if not cfg.exists() or not cfg.is_dir():
-        return ["experiment_baseline"]
+        return [_DEFAULT_SCENARIO]
 
     candidates = sorted(cfg.glob("*json"), key=lambda p: p.name)
     stems = [p.stem for p in candidates]
-    # Always include a sane default even if configs dir is empty
-    return stems or ["experiment_baseline"]
+    return stems or [_DEFAULT_SCENARIO]

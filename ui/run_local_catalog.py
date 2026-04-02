@@ -1,8 +1,5 @@
 """
 Static domain catalogue for the Run Locally page.
-
-Owns field specs, bounded parameter model, and the curated preset list.
-No Streamlit, no parsing, no validation — pure data.
 """
 
 from __future__ import annotations
@@ -78,30 +75,69 @@ BOUND_PARAM_KEYS = frozenset(FIELD_SPECS.keys())
 
 PRESETS: tuple[Preset, ...] = (
     Preset(
-        id="main_comparison",
-        label="Main comparison",
-        description="Balanced examiner preset for the main comparison scenario.",
-        scenario="experiment_compare",
+        id="E1_baseline_single_watcher",
+        label="E1 - baseline single watcher",
+        description=(
+            "Single-agent baseline condition for checking stance-distance ",
+            "convergence and lock-in under heuristic policy.",
+        ),
+        scenario="E1_baseline_single_watcher",
         defaults=BoundedParams(steps=150, top_k=5, seed=0),
     ),
     Preset(
-        id="quick_baseline",
-        label="Quick baseline",
-        description="Smaller baseline run for quick smoke tests and demonstrations.",
-        scenario="experiment_baseline",
-        defaults=BoundedParams(steps=50, top_k=2, seed=0),
+        id="E2_baseline_multi_phenotype_cohort",
+        label="E2 - Baseline multi-phenotype cohort",
+        description=(
+            "Cohort condition comparing watcher, sampler, and avoider "
+            "phenotypes under the same recommendation environment."
+        ),
+        scenario="E2_baseline_multi_phenotype_cohort",
+        defaults=BoundedParams(steps=200, top_k=5, seed=0),
     ),
     Preset(
-        id="drift_enabled",
-        label="Drift-enabled baseline",
-        description="Baseline scenario with viewpoint drift enabled.",
-        scenario="experiment_baseline_drift",
-        defaults=BoundedParams(steps=50, top_k=2, seed=0),
+        id="E3_explore_low",
+        label="E3 - Low exploration",
+        description=(
+            "Low-curiosity condition for testing whether reduced exploration "
+            "accelerates narrowing and lock-in."
+        ),
+        scenario="E3_explore_low",
+        defaults=BoundedParams(steps=200, top_k=5, seed=0),
+    ),
+    Preset(
+        id="E4_explore_base",
+        label="E4 - Base exploration",
+        description=(
+            "Reference exploration setting used as the midpoint comparison "
+            "for the exploration sweep."
+        ),
+        scenario="E4_explore_base",
+        defaults=BoundedParams(steps=200, top_k=5, seed=0),
+    ),
+    Preset(
+        id="E5_explore_high",
+        label="E5 - High exploration",
+        description=(
+            "Higher-curiosity condition for testing whether stronger exploration "
+            "delays or weakens lock-in."
+        ),
+        scenario="E5_explore_high",
+        defaults=BoundedParams(steps=200, top_k=5, seed=0),
+    ),
+    Preset(
+        id="E6_sentiment_strict_vs_lenient",
+        label="E6 - Sentiment strict vs lenient",
+        description=(
+            "Two-agent sentiment tolerance comparison for testing whether "
+            "stricter negative-content filtering changes exposure dynamics."
+        ),
+        scenario="E6_sentiment_strict_vs_lenient",
+        defaults=BoundedParams(steps=200, top_k=5, seed=0),
     ),
 )
 
-PRESET_BY_ID: dict[str, Preset] = {p.id: p for p in PRESETS}
-DEFAULT_PRESET_ID = "main_comparison"
+PRESET_BY_ID: dict[str, Preset] = {preset.id: preset for preset in PRESETS}
+DEFAULT_PRESET_ID = "E1_baseline_single_watcher"
 
 
 def get_preset(preset_id: str) -> Preset:

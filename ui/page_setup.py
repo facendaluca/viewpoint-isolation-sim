@@ -15,6 +15,8 @@ def setup_page(title: str) -> None:
     )
 
     st.sidebar.title("Examiner Dashboard v1")
-    st.sidebar.caption("Scaffold only - UI contains zero simulation logic.")
+    st.sidebar.caption(
+        "Examiner-facing dashboard for generating heuristic runs, reviewing artefacts, and comparing results."
+    )
 
     render_app_state_controls()
