@@ -34,6 +34,8 @@ def scenario_to_config_path(
     - "experiment_baseline"
     - "experiment_baseline.json"
     - "configs/experiment_baseline.json"
+    - nested scenario names such as "E1-baseline_single_watcher"
+      when they uniquely exist under configs/
     - absolute paths
     """
     scenario = scenario.strip()
@@ -60,7 +62,20 @@ def scenario_to_config_path(
     if scenario.endswith(".json"):
         return cfg_dir / scenario
 
-    return cfg_dir / f"{scenario}.json"
+    direct = cfg_dir / f"{scenario}.json"
+    if direct.exists():
+        return direct
+
+    matches = sorted(cfg_dir.rglob(f"{scenario}.json"))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        joined = ", ".join(str(p.relative_to(cfg_dir)) for p in matches)
+        raise FileNotFoundError(
+            f"Scenario `{scenario}` matched the multiple config files under `{cfg_dir}`: {joined}"
+        )
+
+    return direct
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -77,7 +92,6 @@ def resolve_config(base_cfg: dict[str, Any], overrides: dict[str, Any]) -> dict[
     """
     Produce a resolved config dict.
 
-    Design: shallow merge only (simple + predictable).
     Special-case:
         - if overrides has "seed": int -> set "seeds" = [seed]
         - if overrides has "seeds": list[int] -> use it (sorted unique)

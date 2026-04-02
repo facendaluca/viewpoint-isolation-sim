@@ -12,7 +12,6 @@ from ui.run_local_form import RunLocalFormInput, build_submission, params_from_r
 from ui.run_local_sections import (
     render_advanced_json_section,
     render_bounded_form,
-    render_execution_mode,
     render_failed_state,
     render_preset_selector,
     render_resolved_config_preview,
@@ -33,7 +32,15 @@ from ui.run_local_state import (
 def render() -> None:
     # 1. Header & success banner
     st.header("Run locally")
-    st.caption("UI-only page - execution happens in the backend entrypoint in src/.")
+    st.caption(
+        "Create a bounded local heuristic run from a dissertation-aligned "
+        "evaluation preset, optional parameter adjustments, and advanced JSON overrides."
+    )
+
+    st.info(
+        "This page runs the real heuristic simulation path. "
+        "Use it to generate a run, then inspect the outputs in Explore Results."
+    )
 
     last = st.session_state.pop("dashboard_last_created_run", None)
     last_mode = st.session_state.pop("dashboard_last_run_mode", None)
@@ -46,18 +53,16 @@ def render() -> None:
     # 2. Init & execution mode
     init_page_state()
     state = get_state(st.session_state)
-
-    mode_label = render_execution_mode()
-    exec_mode = (
-        ExecutionMode.PLACEHOLDER if mode_label == "Placeholder (fast)" else ExecutionMode.REAL
-    )
+    exec_mode = ExecutionMode.REAL
 
     st.divider()
 
     # 3. Preset selector — rerun on change
     current_preset_id = get_current_preset_id()
     current_preset = get_preset(current_preset_id)
-    st.subheader(f"**Selected scenario:** `{current_preset.scenario}`")
+
+    st.subheader(f"Preset: `{current_preset.label}`")
+    st.caption(current_preset.description)
 
     new_preset_id = render_preset_selector(current_preset_id)
     if new_preset_id:
@@ -79,8 +84,8 @@ def render() -> None:
 
     # 6. Resolve config (gated on valid submission)
     resolved_ok = False
-    resolved_cfg = None
-    cfg_path_str = None
+    resolved_cfg: dict[str, object] | None = None
+    cfg_path_str: str | None = None
 
     if not build_result.errors:
         sync_valid_build(build_result.preset.scenario, build_result.overrides, advanced_json)
@@ -103,18 +108,9 @@ def render() -> None:
     run_clicked = render_run_action_panel(resolved_ok, state.selected_run_dir, exec_mode)
 
     if run_clicked and resolved_ok and resolved_cfg:
-        progress = StreamlitProgress() if exec_mode == ExecutionMode.REAL else None
+        progress = StreamlitProgress()
 
-        if exec_mode == ExecutionMode.PLACEHOLDER:
-            running_label = "Writing placeholder artefacts..."
-            completed_label = "Placeholder run completed!"
-            failed_label = "Placeholder run failed"
-        else:
-            running_label = "Running simulation..."
-            completed_label = "Simulation run completed!"
-            failed_label = "Simulation run failed"
-
-        with st.status(running_label, expanded=True) as status:
+        with st.status("Running simulation...", expanded=True) as status:
             try:
                 result = execute_run(
                     resolved_cfg=resolved_cfg,
@@ -122,9 +118,17 @@ def render() -> None:
                     mode=exec_mode,
                     progress=progress,
                 )
-                status.update(label=completed_label, state="complete", expanded=False)
+                status.update(
+                    label="Simulation run completed!",
+                    state="complete",
+                    expanded=False,
+                )
             except Exception as e:
-                status.update(label=failed_label, state="error", expanded=True)
+                status.update(
+                    label="Simulation run failed",
+                    state="error",
+                    expanded=True,
+                )
                 render_failed_state(e)
                 return
 

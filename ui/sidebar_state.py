@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ui.app_state import available_runs, available_scenarios, get_state, set_state
+from ui.app_state import available_runs, get_state, set_state
 
 
 def render_app_state_controls() -> None:
@@ -11,15 +11,8 @@ def render_app_state_controls() -> None:
 
     st.sidebar.subheader("App state")
 
-    scenarios = available_scenarios()
-    if state.selected_scenario not in scenarios:
-        scenarios = [state.selected_scenario, *scenarios]
-
-    selected_scenario = st.sidebar.selectbox(
-        "Selected scenario",
-        options=scenarios,
-        index=scenarios.index(state.selected_scenario),
-    )
+    st.sidebar.markdown("**Selected scenario**")
+    st.sidebar.code(state.selected_scenario or "(none)")
 
     runs = available_runs()
     run_options = ["(none)", *runs]
@@ -32,11 +25,10 @@ def render_app_state_controls() -> None:
         options=run_options,
         index=run_options.index(current_run),
     )
+
     selected_run_dir = None if selected_run == "(none)" else selected_run
 
     new_state = state
-    if selected_scenario != state.selected_scenario:
-        new_state = new_state.with_selected_scenario(selected_scenario)
     if selected_run_dir != state.selected_run_dir:
         new_state = new_state.with_selected_run_dir(selected_run_dir)
 
