@@ -6,7 +6,6 @@ from ui.app_state import available_runs, get_state, resolve_repo_path, set_state
 from ui.run_context import RunContext
 from ui.views.explore_results_sections import (
     render_config,
-    render_debug_paths,
     render_files,
     render_manifest,
     render_overview,
@@ -49,13 +48,6 @@ def render() -> None:
         return
 
     ctx = RunContext.from_run_dir(run_dir)
-
-    render_debug_paths(
-        ctx.run_dir,
-        ctx.config_path,
-        ctx.manifest_path,
-        ctx.summary_path,
-    )
 
     tabs = st.tabs(["Overview", "Config", "Manifest", "Summary", "Seeds", "Plots", "Files"])
 

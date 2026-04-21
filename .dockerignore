@@ -1,0 +1,32 @@
+# Version control
+.git/
+.gitignore
+
+# Python bytecode and build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Development tooling
+tests/
+docs/
+.pre-commit-config.yaml
+
+# Documentation (not needed at runtime)
+*.md
+
+# Generated outputs — mounted as a named volume at runtime, not baked into the image
+outputs/
+results/
+
+# Editor and OS metadata
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,13 @@
+services:
+  dashboard:
+    build: .
+    image: fyp-sim:local
+    ports:
+      - "8501:8501"
+    volumes:
+      # Named volume persists run artefacts (outputs/runs/) across container restarts
+      - sim_outputs:/app/outputs
+    restart: unless-stopped
+
+volumes:
+  sim_outputs:

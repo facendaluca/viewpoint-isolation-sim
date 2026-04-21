@@ -92,7 +92,7 @@ def render_summary(summary_path: Path | None) -> None:
             if df.empty:
                 st.info("summary.csv is empty.")
             else:
-                st.dataframe(df, width="stretch")
+                st.dataframe(df, use_container_width=True)
             st.download_button(
                 "Download summary.csv",
                 data=summary_path.read_bytes(),
@@ -124,7 +124,7 @@ def render_seeds(run_dir: Path) -> None:
             if df.empty:
                 st.info("run_log.csv exists but is empty (placeholder).")
             else:
-                st.dataframe(df, width="stretch")
+                st.dataframe(df, use_container_width=True)
             st.download_button(
                 "Download run_log.csv",
                 data=run_log.read_bytes(),

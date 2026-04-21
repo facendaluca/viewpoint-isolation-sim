@@ -65,6 +65,37 @@ pip install pytest ruff pre-commit
 pre-commit install
 ```
 
+## Docker deployment
+
+A Docker setup is provided for homelab testing and publication. Requires Docker Engine ≥ 24 (Compose V2).
+
+**Build and run with Compose (recommended for homelab):**
+
+```bash
+docker compose up --build
+```
+
+The dashboard is then available at `http://localhost:8501`. Run artefacts are persisted in a named Docker volume (`sim_outputs`) so they survive container restarts.
+
+**Direct Docker commands:**
+
+```bash
+# Build
+docker build -t fyp-sim:local .
+
+# Run
+docker run -p 8501:8501 -v sim_outputs:/app/outputs fyp-sim:local
+```
+
+**Stop and clean up:**
+
+```bash
+docker compose down          # stop containers, keep volume
+docker compose down -v       # stop containers and delete volume (removes all run artefacts)
+```
+
+> **Note:** Generated run artefacts exist only inside the named volume. Back them up before running `down -v` if you want to keep them.
+
 ## Running the dashboard
 
 The primary way to interact with the project is through the Streamlit examiner dashboard:
