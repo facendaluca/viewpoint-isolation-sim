@@ -14,8 +14,10 @@ from typing import Any
 
 from ui.run_local_catalog import (
     BOUND_PARAM_KEYS,
-    FIELD_SPECS,
+    FLOAT_FIELD_SPECS,
+    INT_FIELD_SPECS,
     BoundedParams,
+    FloatFieldSpec,
     IntFieldSpec,
     Preset,
     get_preset,
@@ -43,25 +45,31 @@ def params_from_raw(
 ) -> BoundedParams:
     """Reconstruct safe BoundedParams from an arbitrary raw params dict."""
     raw = raw_params if isinstance(raw_params, dict) else {}
-    fallback = defaults or get_preset("main_comparison").defaults
-
-    seed_raw = raw.get("seed")
-    if seed_raw is None:
-        seeds_raw = raw.get("seeds")
-        if (
-            isinstance(seeds_raw, list)
-            and seeds_raw
-            and isinstance(seeds_raw[0], int)
-            and not isinstance(seeds_raw[0], bool)
-        ):
-            seed_raw = seeds_raw[0]
-        else:
-            seed_raw = fallback.seed
+    fallback = defaults or get_preset("E1_baseline_single_watcher").defaults
 
     return BoundedParams(
-        steps=_coerce_int(raw.get("steps"), spec=FIELD_SPECS["steps"], default=fallback.steps),
-        top_k=_coerce_int(raw.get("top_k"), spec=FIELD_SPECS["top_k"], default=fallback.top_k),
-        seed=_coerce_int(seed_raw, spec=FIELD_SPECS["seed"], default=fallback.seed),
+        steps=_coerce_int(raw.get("steps"), spec=INT_FIELD_SPECS["steps"], default=fallback.steps),
+        top_k=_coerce_int(raw.get("top_k"), spec=INT_FIELD_SPECS["top_k"], default=fallback.top_k),
+        rank_alpha=_coerce_float(
+            raw.get("rank_alpha"),
+            spec=FLOAT_FIELD_SPECS["rank_alpha"],
+            default=fallback.rank_alpha,
+        ),
+        drift_alpha=_coerce_float(
+            raw.get("drift_alpha"),
+            spec=FLOAT_FIELD_SPECS["drift_alpha"],
+            default=fallback.drift_alpha,
+        ),
+        lock_in_threshold=_coerce_float(
+            raw.get("lock_in_threshold"),
+            spec=FLOAT_FIELD_SPECS["lock_in_threshold"],
+            default=fallback.lock_in_threshold,
+        ),
+        persistence_window=_coerce_int(
+            raw.get("persistence_window"),
+            spec=INT_FIELD_SPECS["persistence_window"],
+            default=fallback.persistence_window,
+        ),
     )
 
 
@@ -93,18 +101,29 @@ def validate_overrides(overrides: dict[str, Any]) -> list[str]:
     """Validate merged overrides against field specs and seeds rules."""
     errors: list[str] = []
 
-    for key, spec in FIELD_SPECS.items():
+    for key, spec in INT_FIELD_SPECS.items():
         if key not in overrides:
             continue
         value = overrides[key]
-        if isinstance(value, bool) or not isinstance(value, int):
+        if isinstance(value, bool) or not isinstance(value, int | float):
             errors.append(f"`{key}` must be an integer between {spec.bounds_text}.")
             continue
         if value < spec.min_value or value > spec.max_value:
             errors.append(f"`{key}` must be between {spec.bounds_text}.")
 
+    for key, spec in FLOAT_FIELD_SPECS.items():
+        if key not in overrides:
+            continue
+        value = overrides[key]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            errors.append(f"`{key}` must be a number between {spec.bounds_text}.")
+            continue
+        numeric_value = float(value)
+        if numeric_value < spec.min_value or numeric_value > spec.max_value:
+            errors.append(f"`{key}` must be between {spec.bounds_text}.")
+
     if "seeds" in overrides:
-        errors.extend(_validate_seeds(overrides["seeds"], FIELD_SPECS["seed"]))
+        errors.extend(_validate_seeds(overrides["seeds"]))
 
     return errors
 
@@ -124,12 +143,17 @@ def build_submission(form_input: RunLocalFormInput) -> RunLocalBuildResult:
     )
 
 
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
+def _validate_seeds(seeds_raw: Any) -> list[str]:
+    seed_spec = IntFieldSpec(
+        key="seed",
+        label="Random seed",
+        min_value=0,
+        max_value=99999,
+        default=0,
+        step=1,
+        help_text="Deterministic seed used for the run.",
+    )
 
-
-def _validate_seeds(seeds_raw: Any, seed_spec: IntFieldSpec) -> list[str]:
     if not isinstance(seeds_raw, list) or not seeds_raw:
         return ["`seeds` must be a non-empty list of integers."]
     if any(isinstance(x, bool) or not isinstance(x, int) for x in seeds_raw):
@@ -150,6 +174,16 @@ def _coerce_int(raw: Any, *, spec: IntFieldSpec, default: int) -> int:
         candidate = raw
     elif isinstance(raw, float) and raw.is_integer():
         candidate = int(raw)
+    else:
+        return default
+    return max(spec.min_value, min(spec.max_value, candidate))
+
+
+def _coerce_float(raw: Any, *, spec: FloatFieldSpec, default: float) -> float:
+    if isinstance(raw, bool):
+        return default
+    if isinstance(raw, int | float):
+        candidate = float(raw)
     else:
         return default
     return max(spec.min_value, min(spec.max_value, candidate))

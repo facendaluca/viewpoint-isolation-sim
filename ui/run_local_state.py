@@ -27,13 +27,13 @@ def handle_preset_change(new_preset_id: str) -> None:
     preset = get_preset(new_preset_id)
     app_state = get_state(st.session_state)
 
-    # Update app state immediately to reflect scenario and default params
+    # Preserve only bounded defaults here.
+    # Seed behaviour should come from the preset config unless explicitly overridden.
     new_state = app_state.with_selected_scenario(preset.scenario).with_params(
         preset.defaults.to_dict()
     )
     set_state(st.session_state, new_state)
 
-    # Set widget session state keys directly so they survive the rerun
     st.session_state[_PRESET_ID_KEY] = preset.id
     st.session_state[_ADVANCED_JSON_KEY] = ""
 

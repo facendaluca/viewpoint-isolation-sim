@@ -5,7 +5,12 @@ from typing import Any
 import streamlit as st
 
 from ui.run_execution import ExecutionMode
-from ui.run_local_catalog import FIELD_SPECS, PRESETS, BoundedParams
+from ui.run_local_catalog import (
+    FLOAT_FIELD_SPECS,
+    INT_FIELD_SPECS,
+    PRESETS,
+    BoundedParams,
+)
 
 
 def render_preset_selector(current_preset_id: str) -> str | None:
@@ -44,45 +49,38 @@ def render_preset_selector(current_preset_id: str) -> str | None:
 
 
 def render_bounded_form(current_params: BoundedParams) -> BoundedParams:
-    """Render basic widget inputs without any scenario free-text lookup. Return updated BoundedParams."""
+    """Render the bounded examiner-facing controls and return updated params."""
     st.subheader("Basic Parameters")
-
-    def _safe_int(val: Any, default: int) -> int:
-        try:
-            return int(val) if val is not None else default
-        except (TypeError, ValueError):
-            return default
+    st.caption(
+        "Preset seed behaviour is preserved by default. "
+        "Use Advanced Configuration only if you want to override `seeds` explicitly."
+    )
 
     col1, col2 = st.columns(2)
+
     with col1:
-        steps_spec = FIELD_SPECS["steps"]
-        steps = st.number_input(
-            f"{steps_spec.label} ({steps_spec.bounds_text})",
-            value=current_params.steps,
-            step=steps_spec.step,
-            help=steps_spec.help_text,
-        )
-    with col2:
-        top_k_spec = FIELD_SPECS["top_k"]
-        top_k = st.number_input(
-            f"{top_k_spec.label} ({top_k_spec.bounds_text})",
-            value=current_params.top_k,
-            step=top_k_spec.step,
-            help=top_k_spec.help_text,
+        steps = _render_int_input("steps", current_params.steps)
+        rank_alpha = _render_float_input("rank_alpha", current_params.rank_alpha)
+        lock_in_threshold = _render_float_input(
+            "lock_in_threshold",
+            current_params.lock_in_threshold,
         )
 
-        seed_spec = FIELD_SPECS["seed"]
-        seed = st.number_input(
-            f"{seed_spec.label} ({seed_spec.bounds_text})",
-            value=current_params.seed,
-            step=seed_spec.step,
-            help=seed_spec.help_text,
+    with col2:
+        top_k = _render_int_input("top_k", current_params.top_k)
+        drift_alpha = _render_float_input("drift_alpha", current_params.drift_alpha)
+        persistence_window = _render_int_input(
+            "persistence_window",
+            current_params.persistence_window,
         )
 
     return BoundedParams(
-        steps=_safe_int(steps, current_params.steps),
-        top_k=_safe_int(top_k, current_params.top_k),
-        seed=_safe_int(seed, current_params.seed),
+        steps=steps,
+        top_k=top_k,
+        rank_alpha=rank_alpha,
+        drift_alpha=drift_alpha,
+        lock_in_threshold=lock_in_threshold,
+        persistence_window=persistence_window,
     )
 
 
@@ -90,13 +88,40 @@ def render_advanced_json_section(current_json: str) -> str:
     """Render optional advanced JSON overrides. Returns the JSON string without syncing state."""
     with st.expander("Advanced Configuration (JSON)"):
         st.caption(
-            "These overrides merge with the parameters above. Invalid JSON will block the run."
+            "Optional top-level JSON overrides merged into the selected preset and "
+            "basic parameters. only include the fields you want to change."
+        )
+
+        st.info(
+            "Use this for settings not shown above, such as `seeds`, "
+            "`enable_viewpoint_drift`, or interest-update parameters."
+        )
+
+        st.markdown("**Common examples**")
+        st.markdown("**Example**")
+        st.code(
+            "{\n"
+            '  "seeds": [0, 1, 2],\n'
+            '  "enable_viewpoint_drift": false,\n'
+            '  "interest_decay": 0.05\n'
+            "}",
+            language="json",
         )
 
         advanced_json = st.text_area(
             "JSON Overrides",
             value=current_json,
-            height=150,
+            height=170,
+            placeholder=('{\n  "seeds": [0, 1, 2],\n  "enable_viewpoint_drift": false\n}'),
+            help=(
+                "Enter a JSON object with only the top-level fields you want to override. "
+                'Example: {"seeds": [0, 1, 2]}.'
+            ),
+        )
+
+        st.caption(
+            "Rules: valid JSON only, top-level object only, and preset values remain unchanged "
+            "unless overridden here."
         )
         return str(advanced_json)
 
@@ -212,4 +237,45 @@ def render_run_feedback(
 
 def render_failed_state(error: Exception) -> None:
     """Show a clear error state when execution fails."""
-    st.error(f"**Run Failed**\n\nThe simulation encountered an error:\n`{error}`", icon="🚨")
+    st.error(f"**Run Failed**\n\nThe simulation encountered an error:\n`{error}`")
+
+
+def _render_int_input(field_key: str, current_value: int) -> int:
+    spec = INT_FIELD_SPECS[field_key]
+    value = st.number_input(
+        f"{spec.label} ({spec.bounds_text})",
+        min_value=spec.min_value,
+        max_value=spec.max_value,
+        value=current_value,
+        step=spec.step,
+        help=spec.help_text,
+    )
+    return _safe_int(value, current_value)
+
+
+def _render_float_input(field_key: str, current_value: float) -> float:
+    spec = FLOAT_FIELD_SPECS[field_key]
+    value = st.number_input(
+        f"{spec.label} ({spec.bounds_text})",
+        min_value=spec.min_value,
+        max_value=spec.max_value,
+        value=float(current_value),
+        step=spec.step,
+        format=spec.format_str,
+        help=spec.help_text,
+    )
+    return _safe_float(value, current_value)
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        return float(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
