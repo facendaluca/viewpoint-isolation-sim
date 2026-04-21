@@ -11,33 +11,33 @@ from ui.run_local_form import (
 
 def test_get_preset_returns_fallback_for_unknown():
     preset = get_preset("invalid_id_xyz")
-    assert preset.id == "main_comparison"
+    assert preset.id == "E1_baseline_single_watcher"
 
 
 def test_infer_preset_id():
-    assert infer_preset_id("experiment_compare") == "main_comparison"
-    assert infer_preset_id("experiment_baseline") == "quick_baseline"
-    assert infer_preset_id("experiment_baseline_drift") == "drift_enabled"
-    assert infer_preset_id("unknown_scenario") == "main_comparison"
+    assert infer_preset_id("E1_baseline_single_watcher") == "E1_baseline_single_watcher"
+    assert infer_preset_id("E2_baseline_multi_phenotype_cohort") == "E2_baseline_multi_phenotype_cohort"
+    assert infer_preset_id("unknown_scenario") == "E1_baseline_single_watcher"
 
 
 def test_params_from_raw_handles_empty():
     params = params_from_raw(None)
-    assert params.steps == 150
+    assert params.steps == 200
     assert params.top_k == 5
-    assert params.seed == 0
+    assert params.rank_alpha == 0.30
 
 
 def test_params_from_raw_handles_partial_dict():
     params = params_from_raw({"steps": 300})
     assert params.steps == 300
     assert params.top_k == 5
-    assert params.seed == 0
+    assert params.rank_alpha == 0.30
 
 
-def test_params_from_raw_resolves_seeds_list():
+def test_params_from_raw_ignores_seeds_list():
+    # seeds are now handled via advanced JSON, not BoundedParams
     params = params_from_raw({"seeds": [42, 43]})
-    assert params.seed == 42
+    assert params.steps == 200
 
 
 def test_extract_advanced_json():
@@ -90,23 +90,34 @@ def test_validate_overrides_seeds_list():
     assert "must be a non-empty list of integers" in errs_invalid[0]
 
 
+def _make_params(steps: int = 100, top_k: int = 2) -> BoundedParams:
+    return BoundedParams(
+        steps=steps,
+        top_k=top_k,
+        rank_alpha=0.30,
+        drift_alpha=0.02,
+        lock_in_threshold=0.20,
+        persistence_window=10,
+    )
+
+
 def test_build_submission_clean():
     form_input = RunLocalFormInput(
-        preset_id="main_comparison",
-        params=BoundedParams(steps=100, top_k=2, seed=42),
+        preset_id="E1_baseline_single_watcher",
+        params=_make_params(),
         advanced_json='{"extra_flag": true}',
     )
     result = build_submission(form_input)
     assert not result.errors
     assert result.overrides["steps"] == 100
     assert result.overrides["extra_flag"] is True
-    assert result.preset.id == "main_comparison"
+    assert result.preset.id == "E1_baseline_single_watcher"
 
 
 def test_build_submission_with_errors():
     form_input = RunLocalFormInput(
-        preset_id="main_comparison",
-        params=BoundedParams(steps=100, top_k=2, seed=42),
+        preset_id="E1_baseline_single_watcher",
+        params=_make_params(),
         advanced_json='{"steps": 9999}',  # Out of bounds
     )
     result = build_submission(form_input)
