@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 import streamlit as st
 
 from ui.app_state import available_runs, get_state, resolve_repo_path, set_state
+
+logger = logging.getLogger(__name__)
 from ui.run_context import RunContext
 from ui.views.explore_results_sections import (
     render_config,
@@ -35,6 +39,7 @@ def render() -> None:
     picked_dir = None if picked == "(none)" else picked
 
     if picked_dir != state.selected_run_dir:
+        logger.info("Explore Results: run selected: %s", picked_dir)
         set_state(st.session_state, state.with_selected_run_dir(picked_dir))
         state = get_state(st.session_state)
 

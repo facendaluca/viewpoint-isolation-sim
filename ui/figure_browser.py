@@ -98,7 +98,7 @@ def _render_selected_figure(
     meta_cols[2].write(f"**Relative path:** `{selected_label}`")
     meta_cols[3].write(f"**Size:** `{selected_plot.stat().st_size / 1024:.1f} KB`")
 
-    st.image(str(selected_plot), caption=selected_label, use_container_width=True)
+    st.image(str(selected_plot), caption=selected_label, width="stretch")
 
     st.download_button(
         f"Download {selected_plot.name}",
@@ -127,12 +127,12 @@ def _render_gallery(
         is_selected = label == selected_label
 
         with columns[index % column_count]:
-            st.image(str(path), caption=label, use_container_width=True)
+            st.image(str(path), caption=label, width="stretch")
             if st.button(
                 "Selected" if is_selected else "Open",
                 key=_state_key(plots_dir, f"open::{index}::{label}"),
                 disabled=is_selected,
-                use_container_width=True,
+                width="stretch",
             ):
                 selected_label = label
                 st.session_state[selected_label_key] = label
@@ -188,13 +188,13 @@ def render_figure_browser(plots_dir: Path) -> None:
 
         nav_cols = st.columns([1, 1, 3])
         with nav_cols[0]:
-            if st.button("Previous", disabled=selected_index == 0, use_container_width=True):
+            if st.button("Previous", disabled=selected_index == 0, width="stretch"):
                 _shift_selected_label(labels, selected_label_key, -1)
                 st.rerun()
 
         with nav_cols[1]:
             if st.button(
-                "Next", disabled=selected_index == len(labels) - 1, use_container_width=True
+                "Next", disabled=selected_index == len(labels) - 1, width="stretch"
             ):
                 _shift_selected_label(labels, selected_label_key, 1)
                 st.rerun()
