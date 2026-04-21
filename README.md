@@ -28,7 +28,6 @@ The simulation is mechanism-focused: it does not claim to fully reproduce any co
 ├── pages/                # Streamlit dashboard pages
 │   ├── 2_Run_Locally.py
 │   ├── 3_Explore_Results.py
-│   ├── 4_About.py
 │   └── 5_Compare_Runs.py
 ├── src/
 │   ├── fyp_sim/          # Core simulation package
@@ -112,8 +111,6 @@ The dashboard has four pages accessible from the sidebar:
 | **Run Locally** | Create bounded heuristic simulation runs from dissertation-aligned presets |
 | **Explore Results** | Inspect run artefacts, generate figures, and browse outputs |
 | **Compare Runs** | Side-by-side comparison of two completed runs |
-
-There is also an **About** page with brief design notes.
 
 ### Recommended examiner journey
 
