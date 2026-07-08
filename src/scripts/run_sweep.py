@@ -96,7 +96,8 @@ def main() -> None:
             for seed in seeds:
                 rng = random.Random(seed)
 
-                user = base_user.clone() if mutates_user else base_user
+                # Rebuild the user when state mutates so seeds/grid cells stay independent
+                user = build_user(cfg) if mutates_user else base_user
 
                 logs = run_simulation(
                     user=user,

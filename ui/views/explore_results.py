@@ -5,8 +5,6 @@ import logging
 import streamlit as st
 
 from ui.app_state import available_runs, get_state, resolve_repo_path, set_state
-
-logger = logging.getLogger(__name__)
 from ui.run_context import RunContext
 from ui.views.explore_results_sections import (
     render_config,
@@ -17,6 +15,8 @@ from ui.views.explore_results_sections import (
     render_summary,
 )
 from ui.views.run_plots_panel import render_plots_panel
+
+logger = logging.getLogger(__name__)
 
 
 def render() -> None:

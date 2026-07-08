@@ -125,7 +125,7 @@ class AppState:
         )
 
 
-def get_state(session: MutableMapping[str, Any]) -> AppState:
+def get_state(session: MutableMapping[str, Any] | Any) -> AppState:
     """Get state from a session mapping (e.g. st.session_state), initialising if missing."""
     raw = session.get(_STATE_KEY)
     if isinstance(raw, dict):
@@ -137,7 +137,7 @@ def get_state(session: MutableMapping[str, Any]) -> AppState:
     return state
 
 
-def set_state(session: MutableMapping[str, Any], state: AppState) -> None:
+def set_state(session: MutableMapping[str, Any] | Any, state: AppState) -> None:
     session[_STATE_KEY] = state.to_dict()
 
 

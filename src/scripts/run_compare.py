@@ -174,6 +174,7 @@ def _run_simulation_compat(
     top_k: int,
     rank_alpha: float,
     drift_alpha: float,
+    enable_viewpoint_drift: bool,
     decider: Any,
 ) -> list[Any]:
     """
@@ -188,6 +189,7 @@ def _run_simulation_compat(
         top_k=top_k,
         rank_alpha=rank_alpha,
         drift_alpha=drift_alpha,
+        enable_viewpoint_drift=enable_viewpoint_drift,
     )
     if "decider" in sig.parameters:
         kwargs["decider"] = decider
@@ -250,6 +252,7 @@ def main() -> None:
     top_k = int(cfg["top_k"])
     rank_alpha = float(cfg["rank_alpha"])
     drift_alpha = float(cfg.get("drift_alpha", cfg.get("viewpoint_drift_rate", 0.0)))
+    enable_viewpoint_drift = bool(cfg.get("enable_viewpoint_drift", False))
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
@@ -257,6 +260,7 @@ def main() -> None:
     print(
         f"[run_compare] config={args.config} "
         f"steps={steps} top_k={top_k} rank_alpha={rank_alpha} drift_alpha={drift_alpha} "
+        f"enable_viewpoint_drift={enable_viewpoint_drift} "
         f"lock_in_threshold={lock_in_threshold} persistence_window={persistence_window} "
         f"seeds={seeds}"
     )
@@ -267,7 +271,6 @@ def main() -> None:
             f"in {args.config}"
         )
 
-    user = build_user(cfg)
     pool = build_video_pool(cfg)
 
     cfg_h = config_hash(cfg, n=10)
@@ -287,6 +290,7 @@ def main() -> None:
             "top_k": top_k,
             "rank_alpha": rank_alpha,
             "drift_alpha": drift_alpha,
+            "enable_viewpoint_drift": enable_viewpoint_drift,
         },
     )
 
@@ -300,6 +304,9 @@ def main() -> None:
     for agent_name, decider in deciders.items():
         for seed in seeds:
             rng = random.Random(seed)
+            # Fresh user per (agent, seed): drift/interest updates mutate state,
+            # so a shared instance would leak state across runs and break fairness.
+            user = build_user(cfg)
             logs = _run_simulation_compat(
                 user=user,
                 video_pool=pool,
@@ -308,6 +315,7 @@ def main() -> None:
                 top_k=top_k,
                 rank_alpha=rank_alpha,
                 drift_alpha=drift_alpha,
+                enable_viewpoint_drift=enable_viewpoint_drift,
                 decider=decider,
             )
 

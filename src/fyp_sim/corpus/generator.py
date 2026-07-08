@@ -59,8 +59,8 @@ def _sample_duration(rng: random.Random, cfg: dict[str, Any]) -> int:
         val = rng.uniform(min_val, max_val)
 
     # Clamp
-    msg_val = max(min_val, min(max_val, val))
-    return int(round(msg_val))
+    clamped = max(min_val, min(max_val, val))
+    return int(round(clamped))
 
 
 def generate_video_corpus(
@@ -154,25 +154,17 @@ def generate_video_corpus(
         # 4. Duration
         duration = _sample_duration(rng, duration_cfg)
 
-        # 5. Tags
+        # 5. Tags: uniform count in [min, max], sampled without replacement.
+        # Vocab is sorted first so sampling is deterministic for a given seed.
         video_tags = []
         if vocab:
-            # Determine count
-            # Simple uniform for now, could add Poisson later config permitting
             count = rng.randint(min_tags, max_tags)
             if count > 0:
-                # Sample without replacement for unique tags per video
-                # If count > len(vocab), cap it
                 k = min(count, len(vocab))
-                # Sort vocab for deterministic sampling
                 sorted_vocab = sorted(vocab)
                 video_tags = rng.sample(sorted_vocab, k)
 
-        # Create object
-        # ID strategy: f"vid_{i}" or just int? Model says `video_id: int`
-        # Using integer ID starting from 0 (or large number? usually 0-indexed in list)
-        # To avoid valid IDs being mistaken for defaults, let's just use i
-
+        # Sequential integer IDs (0-based) match the Video model's `video_id: int`
         vid = Video(
             video_id=i,
             topic_category=topic,
