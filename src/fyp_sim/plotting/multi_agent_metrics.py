@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from .common import detect_lock_in_episodes, load_run_log_df, load_run_plot_params, seed_dirs
+from .common import (
+    detect_lock_in_episodes,
+    load_run_log_df,
+    load_run_plot_params,
+    seed_dirs,
+    t_critical_two_sided_95,
+)
 from .single_run_metrics import ACTION_ORDER
 
 PREFERRED_PHENOTYPE_ORDER = ("watcher", "sampler", "avoider")
@@ -45,7 +51,10 @@ def _compute_ci_bounds(
 ) -> tuple[pd.Series, pd.Series]:
     sqrt_n = n_series.where(n_series > 0, 1).astype(float).pow(0.5)
     stderr = std_series / sqrt_n
-    ci_half_width = (1.96 * stderr).where(n_series > 1, 0.0)
+    # With few seeds a 1.96 interval comes out too narrow, so use the t value
+    # for this sample size instead.
+    t_mult = n_series.map(lambda n: t_critical_two_sided_95(int(n) - 1))
+    ci_half_width = (t_mult * stderr).where(n_series > 1, 0.0)
 
     lower = (mean_series - ci_half_width).clip(0.0, 1.0)
     upper = (mean_series + ci_half_width).clip(0.0, 1.0)
@@ -144,9 +153,9 @@ def build_phenotype_action_summary(run_dir: Path) -> pd.DataFrame:
                 rows.append(
                     {
                         "seed": seed_dir.name,
-                        "phenotype": phenotype,
+                        "phenotype": str(phenotype),
                         "action": action,
-                        "proportion": float(action_series.eq(action).mean()),
+                        "proportion": action_series.eq(action).mean(),
                     }
                 )
 
@@ -240,6 +249,7 @@ def build_phenotype_lockin_data(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFra
         df = _load_multi_agent_seed_df(run_dir, seed_dir)
 
         for phenotype, group in df.groupby("phenotype", sort=False):
+            phenotype = str(phenotype)
             group = group.sort_values("step_id", kind="stable").reset_index(drop=True)
 
             episodes, summary = detect_lock_in_episodes(

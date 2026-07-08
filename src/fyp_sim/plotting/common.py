@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -22,6 +22,31 @@ LOG_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 DEFAULT_PERSISTENCE_WINDOW = 10
+
+# 95% t critical values, keyed by degrees of freedom (number of seeds minus one).
+# With only a handful of seeds the usual 1.96 gives intervals that are too
+# narrow, so we look up the t value instead.
+_T_CRITICAL_95: dict[int, float] = {
+    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
+    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
+    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
+    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
+    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
+    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
+}
+
+
+def t_critical_two_sided_95(df: int) -> float:
+    """Look up the two-sided 95% t value for the given degrees of freedom.
+
+    Beyond 30 degrees of freedom the value is close enough to 1.96, and below
+    1 there is no meaningful interval, so NaN is returned.
+    """
+    if df < 1:
+        return float("nan")
+    if df > 30:
+        return 1.96
+    return _T_CRITICAL_95[df]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +70,7 @@ def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
+def _read_json_if_exists(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
 
@@ -58,7 +83,7 @@ def _read_json_if_exists(path: Path) -> dict[str, Any] | None:
     return data
 
 
-def _first_present(sources: list[dict], keys: tuple[str, ...]) -> object | None:
+def _first_present(sources: list[dict[str, Any]], keys: tuple[str, ...]) -> Any:
     for source in sources:
         if not isinstance(source, dict):
             continue
@@ -90,8 +115,8 @@ def first_seed_run_log(run_dir: Path) -> Path:
 
 
 def load_run_plot_params(run_dir: Path) -> RunPlotParams:
-    manifest = _read_json_if_exists(run_dir / "manifest.json")
-    cfg = _read_json_if_exists(run_dir / "config_resolved.json")
+    manifest = _read_json_if_exists(run_dir / "manifest.json") or {}
+    cfg = _read_json_if_exists(run_dir / "config_resolved.json") or {}
     key_params = (
         manifest.get("key_params", {}) if isinstance(manifest.get("key_params"), dict) else {}
     )
@@ -136,6 +161,10 @@ def load_run_plot_params(run_dir: Path) -> RunPlotParams:
     )
 
 
+def _as_numeric_series(values: Any) -> pd.Series:
+    return cast(pd.Series, pd.to_numeric(values, errors="raise"))
+
+
 def validate_and_normalise_log(
     df: pd.DataFrame,
     *,
@@ -164,11 +193,9 @@ def validate_and_normalise_log(
             f"Accepted aliases: {alias_text}"
         )
 
-    out["step_id"] = pd.to_numeric(out["step_id"], errors="raise").astype(int)
-    out["viewpoint_distance"] = pd.to_numeric(out["viewpoint_distance"], errors="raise").astype(
-        float
-    )
-    out["isolation_index"] = pd.to_numeric(out["isolation_index"], errors="raise").astype(float)
+    out["step_id"] = _as_numeric_series(out["step_id"]).astype(int)
+    out["viewpoint_distance"] = _as_numeric_series(out["viewpoint_distance"]).astype(float)
+    out["isolation_index"] = _as_numeric_series(out["isolation_index"]).astype(float)
     out["user_action"] = out["user_action"].astype(str).str.strip().str.title()
 
     out = out.sort_values("step_id", kind="stable").reset_index(drop=True)
@@ -195,6 +222,12 @@ def detect_lock_in_episodes(
     step_ids = df["step_id"].astype(int).tolist()
 
     episodes: list[LockInEpisode] = []
+    # Lock-in only counts once the user has stayed at or below the threshold
+    # for the whole persistence window, so record the step where that first
+    # happens. This keeps the timing consistent with
+    # analysis.compute_lock_in_metrics, and with it summary.csv and
+    # lockin_summary.csv agree on time-to-lock-in.
+    first_confirmed_step = -1
     i = 0
     n = len(df)
 
@@ -217,9 +250,11 @@ def detect_lock_in_episodes(
                     length=int(run_len),
                 )
             )
+            if first_confirmed_step == -1:
+                first_confirmed_step = int(step_ids[start_idx + persistence_window - 1])
 
     summary = {
-        "time_to_lock_in": int(episodes[0].start_step) if episodes else -1,
+        "time_to_lock_in": first_confirmed_step,
         "n_lockin_episodes": int(len(episodes)),
         "total_lockin_steps": int(sum(ep.length for ep in episodes)),
     }

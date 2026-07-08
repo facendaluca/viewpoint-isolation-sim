@@ -37,7 +37,7 @@
     "n_videos": 1000,
     "seed": 260303,
     "generator": {
-      "topic": { "weights": { "politics": 0.40, "sports": 0.20, "health_wellness": 0.20, "comedy_memes": 0.20 } },
+      "topic": { "weights": { "comedy_memes": 0.30, "health_wellness": 0.1667, "diy_life_hacks": 0.1667, "fashion_beauty": 0.1666, "politics": 0.10, "sports": 0.05, "international_news": 0.05 } },
       "sentiment": { "weights": { "-1.0": 0.15, "0.0": 0.70, "1.0": 0.15 } },
       "viewpoint": { "weights": { "0.0": 0.20, "0.5": 0.60, "1.0": 0.20 } },
       "duration": { "dist": "lognormal", "params": { "mean": 3.5, "sigma": 0.6 }, "min": 10, "max": 180 },
