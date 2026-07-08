@@ -16,6 +16,7 @@ Design goal: keep the engine small and deterministic (given rng seed) so experim
 
 from __future__ import annotations
 
+import inspect
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
@@ -221,6 +222,19 @@ def run_simulation(
     if decider is None:
         decider = HeuristicDecider()
 
+    # Pass the decider's action into the engagement mapping when supported, so the
+    # logged action and its watch-time signal agree in every policy mode. Older
+    # watch_time_fn callables without an 'action' parameter keep working unchanged.
+    try:
+        _watch_time_accepts_action = "action" in inspect.signature(watch_time_fn).parameters
+    except (TypeError, ValueError):
+        _watch_time_accepts_action = False
+
+    def _watch_time(u, video, r, chosen_action):
+        if _watch_time_accepts_action:
+            return watch_time_fn(u, video, r, action=chosen_action)
+        return watch_time_fn(u, video, r)
+
     logs: list[StepLog] = []
     vii_cum = 0.0
 
@@ -229,7 +243,7 @@ def run_simulation(
             # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
             v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
             action = decider.decide_next_action(user, v)
-            wt = watch_time_fn(user, v, rng)
+            wt = _watch_time(user, v, rng, action)
 
             if enable_interest_updates and action == UserAction.WATCH:
                 update_interest_vector(
@@ -305,7 +319,7 @@ def run_simulation(
 
         with tracer.phase("simulate_interaction"):
             action = decider.decide_next_action(user, v)
-            wt = watch_time_fn(user, v, rng)
+            wt = _watch_time(user, v, rng, action)
 
         with tracer.phase("update_state"):
             if enable_interest_updates and action == UserAction.WATCH:

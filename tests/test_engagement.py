@@ -49,3 +49,21 @@ def test_negative_duration_duration_raises_value_error():
 
     with pytest.raises(ValueError, match=r"^video\.duration_s must be >= 0$"):
         watch_time_seconds(u, v, rng)
+
+
+def test_explicit_action_overrides_heuristic_recomputation():
+    # The engagement mapping must follow the decider's action (Chapter 4:
+    # "the resulting action is converted into an explicit watch-time signal").
+    # Regression: it used to recompute the heuristic action internally, so an
+    # LLM decider's Watch could be logged next to a heuristic Avoid watch time.
+    rng = random.Random(0)
+    # Video sentiment below threshold -> heuristic decide_action says AVOID
+    u = User(UserPhenotype.WATCHER, 0.5, {"politics": 0.9}, 0.5)
+    v = Video(5, "politics", 0.6, 0.0, 25)
+
+    assert watch_time_seconds(u, v, random.Random(0)) == 0  # heuristic default path
+
+    from fyp_sim.models import UserAction
+
+    t = watch_time_seconds(u, v, rng, action=UserAction.WATCH)
+    assert int(0.70 * 25) <= t <= 25

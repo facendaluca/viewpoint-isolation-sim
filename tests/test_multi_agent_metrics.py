@@ -284,13 +284,15 @@ def test_build_phenotype_lockin_outcome_summary_marks_non_locking_cases_with_nan
     ].iloc[0]
     avoider_rows = outcomes[outcomes["phenotype"] == "avoider"].sort_values("seed")
 
+    # time_to_lock_in reports the step at which the persistence window is first
+    # satisfied (window=2 here), matching analysis.compute_lock_in_metrics.
     assert bool(watcher_s00000["locked_in"]) is True
-    assert watcher_s00000["time_to_lock_in"] == 0
-    assert watcher_s00000["time_to_lock_in_plot"] == pytest.approx(0.0)
+    assert watcher_s00000["time_to_lock_in"] == 1
+    assert watcher_s00000["time_to_lock_in_plot"] == pytest.approx(1.0)
 
     assert bool(sampler_s00001["locked_in"]) is True
-    assert sampler_s00001["time_to_lock_in"] == 2
-    assert sampler_s00001["time_to_lock_in_plot"] == pytest.approx(2.0)
+    assert sampler_s00001["time_to_lock_in"] == 3
+    assert sampler_s00001["time_to_lock_in_plot"] == pytest.approx(3.0)
 
     assert avoider_rows["locked_in"].eq(False).all()
     assert avoider_rows["time_to_lock_in"].eq(-1).all()

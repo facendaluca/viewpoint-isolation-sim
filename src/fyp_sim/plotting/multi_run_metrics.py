@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .common import load_run_log_df, seed_dirs
+from .common import load_run_log_df, seed_dirs, t_critical_two_sided_95
 
 
 def _build_seed_level_vii_frame(run_dir: Path, seed_dir: Path) -> pd.DataFrame:
@@ -59,7 +59,10 @@ def build_multi_run_vii_summary(run_dir: Path) -> pd.DataFrame:
 
     sqrt_n = summary["n_runs"].where(summary["n_runs"] > 0, 1).astype(float).pow(0.5)
     stderr = summary["vii_std"] / sqrt_n
-    ci_half_width = (1.96 * stderr).where(summary["n_runs"] > 1, 0.0)
+    # With few seeds a 1.96 interval comes out too narrow, so use the t value
+    # for this sample size instead.
+    t_mult = summary["n_runs"].map(lambda n: t_critical_two_sided_95(int(n) - 1))
+    ci_half_width = (t_mult * stderr).where(summary["n_runs"] > 1, 0.0)
 
     summary["vii_ci_lower"] = (summary["vii_mean"] - ci_half_width).clip(0.0, 1.0)
     summary["vii_ci_upper"] = (summary["vii_mean"] + ci_half_width).clip(0.0, 1.0)

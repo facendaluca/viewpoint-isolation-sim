@@ -15,7 +15,7 @@ def action_weight(action: UserAction | str) -> float:
     """
     Map an engagement action to a drift weight (Chapter 3 design weights).
         - Watch -> 1.0
-        - Sample -> 0.5
+        - Sample -> 0.2
         - Avoid -> 0.0
 
     Accepts either UserAction or a string value ("Watch"/"watch, etc.).
