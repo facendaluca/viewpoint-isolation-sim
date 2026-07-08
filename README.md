@@ -60,7 +60,7 @@ pip install -e .
 For development (linting, testing, pre-commit hooks):
 
 ```bash
-pip install pytest ruff pre-commit
+pip install -e ".[dev]"
 pre-commit install
 ```
 

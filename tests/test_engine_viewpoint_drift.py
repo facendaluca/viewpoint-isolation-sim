@@ -97,6 +97,38 @@ def test_viewpoint_drift_enabled_moves_toward_target_and_chains_state(monkeypatc
     assert user.viewpoint_score == pytest.approx(logs[-1].user_viewpoint_post)
 
 
+def test_viewpoint_drift_applies_when_only_drift_alpha_is_passed(monkeypatch):
+    # Regression: the engine used to key the drift branch off viewpoint_drift_rate
+    # only, so callers passing just drift_alpha silently got no drift.
+    monkeypatch.setattr(engine, "interest_score", lambda user, v: 0.0)
+    monkeypatch.setattr(engine, "viewpoint_distance", lambda a, b: abs(a - b))
+    monkeypatch.setattr(
+        engine,
+        "running_mean",
+        lambda prev, t, x: x if t == 0 else (prev * t + x) / (t + 1),
+    )
+
+    user = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
+    video = SimpleNamespace(video_id=1, viewpoint_score=1.0, topic_category="topic", duration_s=30)
+
+    logs = engine.run_simulation(
+        user=user,
+        video_pool=[video],
+        steps=3,
+        rng=random.Random(0),
+        chooser=chooser_first,
+        watch_time_fn=watch_time_const,
+        decider=DummyDecider(UserAction.WATCH),
+        rank_alpha=0.3,
+        enable_viewpoint_drift=True,
+        drift_alpha=0.2,  # no viewpoint_drift_rate on purpose
+    )
+
+    assert user.viewpoint_score > 0.2
+    for row in logs:
+        assert row.user_viewpoint_post >= row.user_viewpoint_pre
+
+
 def test_viewpoint_drift_enabled_but_avoid_action_is_noop(monkeypatch):
     monkeypatch.setattr(engine, "interest_score", lambda user, v: 0.0)
     monkeypatch.setattr(engine, "viewpoint_distance", lambda a, b: abs(a - b))

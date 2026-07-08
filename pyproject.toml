@@ -8,11 +8,21 @@ dependencies = [
     "pandas>=2.0.0",
     "seaborn>=0.13.0",
     "streamlit>=1.54.0",
-    ]
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "pre-commit>=3.5",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
+
+[tool.pyright]
+extraPaths = [".", "src"]
 
 [tool.ruff]
 line-length = 100

@@ -35,7 +35,7 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def _corpus_payload(videos: list[Video]) -> str:
+def _corpus_payload(videos: list[Video]) -> list[dict[str, Any]]:
     """Canonical JSON payload for a corpus.
 
     Deterministic (sorted, stable key ordering) so a sha256 hash can prove "same corpus" across runs/configs.

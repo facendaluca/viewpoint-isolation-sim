@@ -252,11 +252,11 @@ def run_simulation(
             interest_keys = len(user.interest_vector)
 
             # Optional viewpoint drift update happens after VII_t so baseline VII_t stays comparable.
-            if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
+            if enable_viewpoint_drift and resolved_drift_alpha > 0.0:
                 user.viewpoint_score = apply_viewpoint_drift(
                     user_viewpoint_pre,
                     v.viewpoint_score,
-                    drift_rate=viewpoint_drift_rate,
+                    drift_rate=resolved_drift_alpha,
                     action=action,
                 )
 
@@ -327,11 +327,11 @@ def run_simulation(
             topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
             interest_keys = len(user.interest_vector)
 
-            if enable_viewpoint_drift and viewpoint_drift_rate > 0.0:
+            if enable_viewpoint_drift and resolved_drift_alpha > 0.0:
                 user.viewpoint_score = apply_viewpoint_drift(
                     user_viewpoint_pre,
                     v.viewpoint_score,
-                    drift_rate=viewpoint_drift_rate,
+                    drift_rate=resolved_drift_alpha,
                     action=action,
                 )
 

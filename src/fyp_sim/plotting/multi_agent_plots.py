@@ -303,17 +303,16 @@ def plot_phenotype_lockin_outcomes(
         int((lockin_outcomes["phenotype"] == phenotype).sum()) for phenotype in phenotypes
     ]
 
+    locked_note_lines = [
+        f"{label} {locked}/{total} locked"
+        for label, locked, total in zip(phenotype_labels, locked_counts, total_counts, strict=True)
+    ]
     metric_specs = [
         (
             "time_to_lock_in_plot",
             "Time to first lock-in",
             "Step ID",
-            (
-                "Non-locking seeds omitted\n"
-                f"{phenotype_labels[0]} {locked_counts[0]}/{total_counts[0]} locked\n"
-                f"{phenotype_labels[1]} {locked_counts[1]}/{total_counts[1]} locked\n"
-                f"{phenotype_labels[2]} {locked_counts[2]}/{total_counts[2]} locked"
-            ),
+            "\n".join(["Non-locking seeds omitted", *locked_note_lines]),
         ),
         (
             "n_lockin_episodes",

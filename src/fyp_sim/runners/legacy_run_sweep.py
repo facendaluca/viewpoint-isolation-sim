@@ -51,7 +51,7 @@ def run_seed_sweep_legacy(
     rows: list[dict[str, Any]] = []
 
     for seed in seeds:
-        # Keep determinism: your engine takes an rng built from seed
+        # Keep determinism: the engine takes an rng built from the seed
         import random
 
         rng = random.Random(seed)

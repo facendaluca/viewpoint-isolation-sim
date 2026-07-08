@@ -152,7 +152,11 @@ class LLMDecider:
                 )
                 self._warned_unreachable = True
             else:
-                logger.debug("LLM still unreachable. prompt_id=%s err=%s -> fallback=timeout")
+                logger.debug(
+                    "LLM still unreachable. prompt_id=%s err=%s -> fallback=timeout",
+                    self.prompt_id,
+                    str(e),
+                )
             return self.fallback.decide_next_action(user, video)
         except Exception as e:
             logger.warning(
