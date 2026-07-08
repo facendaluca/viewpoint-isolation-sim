@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from typing import Any
 from pathlib import Path
 
 import pandas as pd
@@ -184,7 +184,7 @@ def build_phenotype_action_dynamics_summary(
     rolling_window: int | None = None,
 ) -> pd.DataFrame:
     params = load_run_plot_params(run_dir)
-    resolved_window = max(1, int(rolling_window or params.persistence_window))
+    resolved_window = max(1, rolling_window or params.persistence_window)
 
     rows: list[pd.DataFrame] = []
 
@@ -242,14 +242,13 @@ def build_phenotype_action_dynamics_summary(
 def build_phenotype_lockin_data(run_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     params = load_run_plot_params(run_dir)
 
-    summary_rows: list[dict[str, str | int | float]] = []
-    episode_rows: list[dict[str, str | int]] = []
+    summary_rows: list[dict[str, Any]] = []
+    episode_rows: list[dict[str, Any]] = []
 
     for seed_dir in seed_dirs(run_dir):
         df = _load_multi_agent_seed_df(run_dir, seed_dir)
 
         for phenotype, group in df.groupby("phenotype", sort=False):
-            phenotype = str(phenotype)
             group = group.sort_values("step_id", kind="stable").reset_index(drop=True)
 
             episodes, summary = detect_lock_in_episodes(

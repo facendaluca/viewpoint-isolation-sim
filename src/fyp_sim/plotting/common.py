@@ -115,8 +115,8 @@ def first_seed_run_log(run_dir: Path) -> Path:
 
 
 def load_run_plot_params(run_dir: Path) -> RunPlotParams:
-    manifest = _read_json_if_exists(run_dir / "manifest.json") or {}
-    cfg = _read_json_if_exists(run_dir / "config_resolved.json") or {}
+    manifest = _read_json_if_exists(run_dir / "manifest.json")
+    cfg = _read_json_if_exists(run_dir / "config_resolved.json")
     key_params = (
         manifest.get("key_params", {}) if isinstance(manifest.get("key_params"), dict) else {}
     )

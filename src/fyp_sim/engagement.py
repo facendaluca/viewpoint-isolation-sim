@@ -45,4 +45,4 @@ def watch_time_seconds(
         return 0
     fraction = rng.uniform(0.70, 0.95)
 
-    return min(video.duration_s, max(1, round(video.duration_s * fraction)))
+    return min(video.duration_s, max(1, int(round(video.duration_s * fraction))))
