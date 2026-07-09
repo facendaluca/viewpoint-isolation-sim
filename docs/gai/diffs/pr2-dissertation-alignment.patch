@@ -1,0 +1,421 @@
+From a84270a93316678ae85eb2b85d6f29673857f93c Mon Sep 17 00:00:00 2001
+From: Luca Facenda <myrepo@facenda.uk>
+Date: Tue, 7 Jul 2026 19:35:50 +0300
+Subject: [PATCH] align: bring implementation and eval configs in line with the
+ dissertation
+
+Cross-examined against the dissertation export (Chapters 3-4 and appendices):
+
+- simulation/viewpoint_drift: correct the action_weight docstring to the
+  Chapter 3 design weights (Watch 1.0, Sample 0.2, Avoid 0.0); the code
+  and tests already implemented 0.2 but the docstring claimed 0.5
+- engagement + simulation/engine: the engagement mapping now receives the
+  decider's action (Chapter 4: 'the resulting action is converted into an
+  explicit watch-time signal'; both agent paths 're-enter the same bounded
+  action space before watch-time mapping'). Previously the heuristic
+  action was recomputed internally, so in LLM mode the logged action and
+  its watch time could disagree. Heuristic-mode behaviour and rng
+  consumption are unchanged; custom watch_time_fn callables without an
+  'action' parameter keep working
+- plotting/common: detect_lock_in_episodes now reports time_to_lock_in as
+  the step at which the persistence window is first satisfied, matching
+  analysis.compute_lock_in_metrics and the dissertation's definition of
+  lock-in as sustained distance for a consecutive window; summary.csv,
+  lockin_summary.csv, figures and the Compare Runs page now agree
+- plotting/common + multi_run_metrics + multi_agent_metrics: use the
+  Student's t multiplier (df = n_seeds - 1) for the 95% confidence
+  interval claimed in the dissertation; z=1.96 understated the interval
+  at the 5-seed counts the presets use
+- configs/eval/E1-E6: corpus topic weights now follow the survey-derived
+  Table 3.9 distribution (Light Entertainment 0.30; Hobbies & Lifestyle
+  0.50 split over health/DIY/fashion; Politics & Issues 0.10;
+  Random/Other 0.10 over sports/international news). The previous
+  politics-dominant corpus (0.40) contradicted the documented corpus
+  generation strategy. Corpus seed and all other parameters unchanged;
+  run results will differ from pre-alignment runs by design
+- tests: update lock-in timing expectations to the unified definition and
+  add a regression test that an explicit action drives the watch-time
+  mapping
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_012anUZN7p7PaDUsmnarRq8Q
+---
+ configs/eval/E1_baseline_single_watcher.json  | 11 ++++---
+ .../E2_baseline_multi_phenotype_cohort.json   | 11 ++++---
+ configs/eval/E3_explore_low.json              |  2 +-
+ configs/eval/E4_explore_base.json             |  2 +-
+ configs/eval/E5_explore_high.json             |  2 +-
+ .../eval/E6_sentiment_strict_vs_lenient.json  |  2 +-
+ src/fyp_sim/engagement.py                     | 16 ++++++++--
+ src/fyp_sim/plotting/common.py                | 30 ++++++++++++++++++-
+ src/fyp_sim/plotting/multi_agent_metrics.py   | 12 ++++++--
+ src/fyp_sim/plotting/multi_run_metrics.py     |  6 ++--
+ src/fyp_sim/simulation/engine.py              | 18 +++++++++--
+ src/fyp_sim/simulation/viewpoint_drift.py     |  2 +-
+ tests/test_engagement.py                      | 18 +++++++++++
+ tests/test_multi_agent_metrics.py             | 10 ++++---
+ 14 files changed, 115 insertions(+), 27 deletions(-)
+
+diff --git a/configs/eval/E1_baseline_single_watcher.json b/configs/eval/E1_baseline_single_watcher.json
+index 12ae41c..f8cc03e 100644
+--- a/configs/eval/E1_baseline_single_watcher.json
++++ b/configs/eval/E1_baseline_single_watcher.json
+@@ -47,10 +47,13 @@
+     "generator": {
+       "topic": {
+         "weights": {
+-          "politics": 0.40,
+-          "sports": 0.20,
+-          "health_wellness": 0.20,
+-          "comedy_memes": 0.20
++          "comedy_memes": 0.30,
++          "health_wellness": 0.1667,
++          "diy_life_hacks": 0.1667,
++          "fashion_beauty": 0.1666,
++          "politics": 0.10,
++          "sports": 0.05,
++          "international_news": 0.05
+         }
+       },
+       "sentiment": {
+diff --git a/configs/eval/E2_baseline_multi_phenotype_cohort.json b/configs/eval/E2_baseline_multi_phenotype_cohort.json
+index 17a798e..c900cc8 100644
+--- a/configs/eval/E2_baseline_multi_phenotype_cohort.json
++++ b/configs/eval/E2_baseline_multi_phenotype_cohort.json
+@@ -63,10 +63,13 @@
+     "generator": {
+       "topic": {
+         "weights": {
+-          "politics": 0.40,
+-          "sports": 0.20,
+-          "health_wellness": 0.20,
+-          "comedy_memes": 0.20
++          "comedy_memes": 0.30,
++          "health_wellness": 0.1667,
++          "diy_life_hacks": 0.1667,
++          "fashion_beauty": 0.1666,
++          "politics": 0.10,
++          "sports": 0.05,
++          "international_news": 0.05
+         }
+       },
+       "sentiment": {
+diff --git a/configs/eval/E3_explore_low.json b/configs/eval/E3_explore_low.json
+index 2efd8e9..99480d7 100644
+--- a/configs/eval/E3_explore_low.json
++++ b/configs/eval/E3_explore_low.json
+@@ -37,7 +37,7 @@
+     "n_videos": 1000,
+     "seed": 260303,
+     "generator": {
+-      "topic": { "weights": { "politics": 0.40, "sports": 0.20, "health_wellness": 0.20, "comedy_memes": 0.20 } },
++      "topic": { "weights": { "comedy_memes": 0.30, "health_wellness": 0.1667, "diy_life_hacks": 0.1667, "fashion_beauty": 0.1666, "politics": 0.10, "sports": 0.05, "international_news": 0.05 } },
+       "sentiment": { "weights": { "-1.0": 0.15, "0.0": 0.70, "1.0": 0.15 } },
+       "viewpoint": { "weights": { "0.0": 0.20, "0.5": 0.60, "1.0": 0.20 } },
+       "duration": { "dist": "lognormal", "params": { "mean": 3.5, "sigma": 0.6 }, "min": 10, "max": 180 },
+diff --git a/configs/eval/E4_explore_base.json b/configs/eval/E4_explore_base.json
+index d6d4795..402a7dc 100644
+--- a/configs/eval/E4_explore_base.json
++++ b/configs/eval/E4_explore_base.json
+@@ -37,7 +37,7 @@
+     "n_videos": 1000,
+     "seed": 260303,
+     "generator": {
+-      "topic": { "weights": { "politics": 0.40, "sports": 0.20, "health_wellness": 0.20, "comedy_memes": 0.20 } },
++      "topic": { "weights": { "comedy_memes": 0.30, "health_wellness": 0.1667, "diy_life_hacks": 0.1667, "fashion_beauty": 0.1666, "politics": 0.10, "sports": 0.05, "international_news": 0.05 } },
+       "sentiment": { "weights": { "-1.0": 0.15, "0.0": 0.70, "1.0": 0.15 } },
+       "viewpoint": { "weights": { "0.0": 0.20, "0.5": 0.60, "1.0": 0.20 } },
+       "duration": { "dist": "lognormal", "params": { "mean": 3.5, "sigma": 0.6 }, "min": 10, "max": 180 },
+diff --git a/configs/eval/E5_explore_high.json b/configs/eval/E5_explore_high.json
+index b67a50d..1b373e3 100644
+--- a/configs/eval/E5_explore_high.json
++++ b/configs/eval/E5_explore_high.json
+@@ -37,7 +37,7 @@
+     "n_videos": 1000,
+     "seed": 260303,
+     "generator": {
+-      "topic": { "weights": { "politics": 0.40, "sports": 0.20, "health_wellness": 0.20, "comedy_memes": 0.20 } },
++      "topic": { "weights": { "comedy_memes": 0.30, "health_wellness": 0.1667, "diy_life_hacks": 0.1667, "fashion_beauty": 0.1666, "politics": 0.10, "sports": 0.05, "international_news": 0.05 } },
+       "sentiment": { "weights": { "-1.0": 0.15, "0.0": 0.70, "1.0": 0.15 } },
+       "viewpoint": { "weights": { "0.0": 0.20, "0.5": 0.60, "1.0": 0.20 } },
+       "duration": { "dist": "lognormal", "params": { "mean": 3.5, "sigma": 0.6 }, "min": 10, "max": 180 },
+diff --git a/configs/eval/E6_sentiment_strict_vs_lenient.json b/configs/eval/E6_sentiment_strict_vs_lenient.json
+index f270f78..8b65f38 100644
+--- a/configs/eval/E6_sentiment_strict_vs_lenient.json
++++ b/configs/eval/E6_sentiment_strict_vs_lenient.json
+@@ -51,7 +51,7 @@
+     "n_videos": 1000,
+     "seed": 260303,
+     "generator": {
+-      "topic": { "weights": { "politics": 0.40, "sports": 0.20, "health_wellness": 0.20, "comedy_memes": 0.20 } },
++      "topic": { "weights": { "comedy_memes": 0.30, "health_wellness": 0.1667, "diy_life_hacks": 0.1667, "fashion_beauty": 0.1666, "politics": 0.10, "sports": 0.05, "international_news": 0.05 } },
+       "sentiment": { "weights": { "-1.0": 0.15, "0.0": 0.70, "1.0": 0.15 } },
+       "viewpoint": { "weights": { "0.0": 0.20, "0.5": 0.60, "1.0": 0.20 } },
+       "duration": { "dist": "lognormal", "params": { "mean": 3.5, "sigma": 0.6 }, "min": 10, "max": 180 },
+diff --git a/src/fyp_sim/engagement.py b/src/fyp_sim/engagement.py
+index 3767c03..575c993 100644
+--- a/src/fyp_sim/engagement.py
++++ b/src/fyp_sim/engagement.py
+@@ -6,7 +6,12 @@ from fyp_sim.models import User, UserAction, Video
+ from fyp_sim.policy import decide_action
+ 
+ 
+-def watch_time_seconds(user: User, video: Video, rng: random.Random) -> int:
++def watch_time_seconds(
++    user: User,
++    video: Video,
++    rng: random.Random,
++    action: UserAction | None = None,
++) -> int:
+     """Return watch time (seconds) as an implicit feedback proxy.
+ 
+     Mapping (capped by video duration):
+@@ -15,14 +20,19 @@ def watch_time_seconds(user: User, video: Video, rng: random.Random) -> int:
+         - WATCH -> 70-95% of duration (majority watched)
+ 
+     Notes:
+-        - Action comes from 'decide_action' (phenotype + interest (topic/tags) + sentiment gating).
++        - `action` should be the action chosen by the active decider so the logged
++          action and its watch-time signal always agree (heuristic and LLM modes).
++        - When `action` is omitted it is derived from the heuristic 'decide_action'
++          (phenotype + interest (topic/tags) + sentiment gating), which matches the
++          decider's choice in heuristic mode.
+         - This function is intentionally simple and stochastic but reproducible given rng seed.
+     """
+ 
+     if video.duration_s < 0:
+         raise ValueError("video.duration_s must be >= 0")
+ 
+-    action = decide_action(user, video)
++    if action is None:
++        action = decide_action(user, video)
+ 
+     if action == UserAction.AVOID:
+         return 0
+diff --git a/src/fyp_sim/plotting/common.py b/src/fyp_sim/plotting/common.py
+index 94b0533..99ed8f2 100644
+--- a/src/fyp_sim/plotting/common.py
++++ b/src/fyp_sim/plotting/common.py
+@@ -23,6 +23,27 @@ LOG_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+ 
+ DEFAULT_PERSISTENCE_WINDOW = 10
+ 
++# Two-sided 95% Student's t critical values by degrees of freedom (df = n - 1).
++# Runs use small seed counts (typically n=5), where the normal z=1.96 understates
++# the interval width; the t multiplier keeps the "95% CI" label accurate.
++_T_CRITICAL_95: dict[int, float] = {
++    1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571,
++    6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262, 10: 2.228,
++    11: 2.201, 12: 2.179, 13: 2.160, 14: 2.145, 15: 2.131,
++    16: 2.120, 17: 2.110, 18: 2.101, 19: 2.093, 20: 2.086,
++    21: 2.080, 22: 2.074, 23: 2.069, 24: 2.064, 25: 2.060,
++    26: 2.056, 27: 2.052, 28: 2.048, 29: 2.045, 30: 2.042,
++}
++
++
++def t_critical_two_sided_95(df: int) -> float:
++    """Two-sided 95% t critical value; ~z for large df, NaN when df < 1."""
++    if df < 1:
++        return float("nan")
++    if df > 30:
++        return 1.96
++    return _T_CRITICAL_95[df]
++
+ 
+ @dataclass(frozen=True, slots=True)
+ class RunPlotParams:
+@@ -195,6 +216,11 @@ def detect_lock_in_episodes(
+     step_ids = df["step_id"].astype(int).tolist()
+ 
+     episodes: list[LockInEpisode] = []
++    # Step at which the first episode satisfies the persistence window.
++    # Matches analysis.compute_lock_in_metrics: lock-in is only *established*
++    # once `persistence_window` consecutive steps are at/below the threshold,
++    # so summary.csv and lockin_summary.csv report the same time-to-lock-in.
++    first_confirmed_step = -1
+     i = 0
+     n = len(df)
+ 
+@@ -217,9 +243,11 @@ def detect_lock_in_episodes(
+                     length=int(run_len),
+                 )
+             )
++            if first_confirmed_step == -1:
++                first_confirmed_step = int(step_ids[start_idx + persistence_window - 1])
+ 
+     summary = {
+-        "time_to_lock_in": int(episodes[0].start_step) if episodes else -1,
++        "time_to_lock_in": first_confirmed_step,
+         "n_lockin_episodes": int(len(episodes)),
+         "total_lockin_steps": int(sum(ep.length for ep in episodes)),
+     }
+diff --git a/src/fyp_sim/plotting/multi_agent_metrics.py b/src/fyp_sim/plotting/multi_agent_metrics.py
+index 921cd20..5b38150 100644
+--- a/src/fyp_sim/plotting/multi_agent_metrics.py
++++ b/src/fyp_sim/plotting/multi_agent_metrics.py
+@@ -4,7 +4,13 @@ from pathlib import Path
+ 
+ import pandas as pd
+ 
+-from .common import detect_lock_in_episodes, load_run_log_df, load_run_plot_params, seed_dirs
++from .common import (
++    detect_lock_in_episodes,
++    load_run_log_df,
++    load_run_plot_params,
++    seed_dirs,
++    t_critical_two_sided_95,
++)
+ from .single_run_metrics import ACTION_ORDER
+ 
+ PREFERRED_PHENOTYPE_ORDER = ("watcher", "sampler", "avoider")
+@@ -45,7 +51,9 @@ def _compute_ci_bounds(
+ ) -> tuple[pd.Series, pd.Series]:
+     sqrt_n = n_series.where(n_series > 0, 1).astype(float).pow(0.5)
+     stderr = std_series / sqrt_n
+-    ci_half_width = (1.96 * stderr).where(n_series > 1, 0.0)
++    # Student's t multiplier (df = n - 1) keeps the 95% CI honest at small seed counts.
++    t_mult = n_series.map(lambda n: t_critical_two_sided_95(int(n) - 1))
++    ci_half_width = (t_mult * stderr).where(n_series > 1, 0.0)
+ 
+     lower = (mean_series - ci_half_width).clip(0.0, 1.0)
+     upper = (mean_series + ci_half_width).clip(0.0, 1.0)
+diff --git a/src/fyp_sim/plotting/multi_run_metrics.py b/src/fyp_sim/plotting/multi_run_metrics.py
+index 1dfc357..324c5c9 100644
+--- a/src/fyp_sim/plotting/multi_run_metrics.py
++++ b/src/fyp_sim/plotting/multi_run_metrics.py
+@@ -4,7 +4,7 @@ from pathlib import Path
+ 
+ import pandas as pd
+ 
+-from .common import load_run_log_df, seed_dirs
++from .common import load_run_log_df, seed_dirs, t_critical_two_sided_95
+ 
+ 
+ def _build_seed_level_vii_frame(run_dir: Path, seed_dir: Path) -> pd.DataFrame:
+@@ -59,7 +59,9 @@ def build_multi_run_vii_summary(run_dir: Path) -> pd.DataFrame:
+ 
+     sqrt_n = summary["n_runs"].where(summary["n_runs"] > 0, 1).astype(float).pow(0.5)
+     stderr = summary["vii_std"] / sqrt_n
+-    ci_half_width = (1.96 * stderr).where(summary["n_runs"] > 1, 0.0)
++    # Student's t multiplier (df = n - 1) keeps the 95% CI honest at small seed counts.
++    t_mult = summary["n_runs"].map(lambda n: t_critical_two_sided_95(int(n) - 1))
++    ci_half_width = (t_mult * stderr).where(summary["n_runs"] > 1, 0.0)
+ 
+     summary["vii_ci_lower"] = (summary["vii_mean"] - ci_half_width).clip(0.0, 1.0)
+     summary["vii_ci_upper"] = (summary["vii_mean"] + ci_half_width).clip(0.0, 1.0)
+diff --git a/src/fyp_sim/simulation/engine.py b/src/fyp_sim/simulation/engine.py
+index 871173d..f26f1c5 100644
+--- a/src/fyp_sim/simulation/engine.py
++++ b/src/fyp_sim/simulation/engine.py
+@@ -16,6 +16,7 @@ Design goal: keep the engine small and deterministic (given rng seed) so experim
+ 
+ from __future__ import annotations
+ 
++import inspect
+ from contextlib import AbstractContextManager
+ from dataclasses import dataclass
+ from typing import Protocol
+@@ -221,6 +222,19 @@ def run_simulation(
+     if decider is None:
+         decider = HeuristicDecider()
+ 
++    # Pass the decider's action into the engagement mapping when supported, so the
++    # logged action and its watch-time signal agree in every policy mode. Older
++    # watch_time_fn callables without an 'action' parameter keep working unchanged.
++    try:
++        _watch_time_accepts_action = "action" in inspect.signature(watch_time_fn).parameters
++    except (TypeError, ValueError):
++        _watch_time_accepts_action = False
++
++    def _watch_time(u, video, r, chosen_action):
++        if _watch_time_accepts_action:
++            return watch_time_fn(u, video, r, action=chosen_action)
++        return watch_time_fn(u, video, r)
++
+     logs: list[StepLog] = []
+     vii_cum = 0.0
+ 
+@@ -229,7 +243,7 @@ def run_simulation(
+             # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
+             v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+             action = decider.decide_next_action(user, v)
+-            wt = watch_time_fn(user, v, rng)
++            wt = _watch_time(user, v, rng, action)
+ 
+             if enable_interest_updates and action == UserAction.WATCH:
+                 update_interest_vector(
+@@ -305,7 +319,7 @@ def run_simulation(
+ 
+         with tracer.phase("simulate_interaction"):
+             action = decider.decide_next_action(user, v)
+-            wt = watch_time_fn(user, v, rng)
++            wt = _watch_time(user, v, rng, action)
+ 
+         with tracer.phase("update_state"):
+             if enable_interest_updates and action == UserAction.WATCH:
+diff --git a/src/fyp_sim/simulation/viewpoint_drift.py b/src/fyp_sim/simulation/viewpoint_drift.py
+index 1eeae84..786f8d0 100644
+--- a/src/fyp_sim/simulation/viewpoint_drift.py
++++ b/src/fyp_sim/simulation/viewpoint_drift.py
+@@ -15,7 +15,7 @@ def action_weight(action: UserAction | str) -> float:
+     """
+     Map an engagement action to a drift weight (Chapter 3 design weights).
+         - Watch -> 1.0
+-        - Sample -> 0.5
++        - Sample -> 0.2
+         - Avoid -> 0.0
+ 
+     Accepts either UserAction or a string value ("Watch"/"watch, etc.).
+diff --git a/tests/test_engagement.py b/tests/test_engagement.py
+index 6da5e1a..98a0e32 100644
+--- a/tests/test_engagement.py
++++ b/tests/test_engagement.py
+@@ -49,3 +49,21 @@ def test_negative_duration_duration_raises_value_error():
+ 
+     with pytest.raises(ValueError, match=r"^video\.duration_s must be >= 0$"):
+         watch_time_seconds(u, v, rng)
++
++
++def test_explicit_action_overrides_heuristic_recomputation():
++    # The engagement mapping must follow the decider's action (Chapter 4:
++    # "the resulting action is converted into an explicit watch-time signal").
++    # Regression: it used to recompute the heuristic action internally, so an
++    # LLM decider's Watch could be logged next to a heuristic Avoid watch time.
++    rng = random.Random(0)
++    # Video sentiment below threshold -> heuristic decide_action says AVOID
++    u = User(UserPhenotype.WATCHER, 0.5, {"politics": 0.9}, 0.5)
++    v = Video(5, "politics", 0.6, 0.0, 25)
++
++    assert watch_time_seconds(u, v, random.Random(0)) == 0  # heuristic default path
++
++    from fyp_sim.models import UserAction
++
++    t = watch_time_seconds(u, v, rng, action=UserAction.WATCH)
++    assert int(0.70 * 25) <= t <= 25
+diff --git a/tests/test_multi_agent_metrics.py b/tests/test_multi_agent_metrics.py
+index 7128b7f..b37f5eb 100644
+--- a/tests/test_multi_agent_metrics.py
++++ b/tests/test_multi_agent_metrics.py
+@@ -284,13 +284,15 @@ def test_build_phenotype_lockin_outcome_summary_marks_non_locking_cases_with_nan
+     ].iloc[0]
+     avoider_rows = outcomes[outcomes["phenotype"] == "avoider"].sort_values("seed")
+ 
++    # time_to_lock_in reports the step at which the persistence window is first
++    # satisfied (window=2 here), matching analysis.compute_lock_in_metrics.
+     assert bool(watcher_s00000["locked_in"]) is True
+-    assert watcher_s00000["time_to_lock_in"] == 0
+-    assert watcher_s00000["time_to_lock_in_plot"] == pytest.approx(0.0)
++    assert watcher_s00000["time_to_lock_in"] == 1
++    assert watcher_s00000["time_to_lock_in_plot"] == pytest.approx(1.0)
+ 
+     assert bool(sampler_s00001["locked_in"]) is True
+-    assert sampler_s00001["time_to_lock_in"] == 2
+-    assert sampler_s00001["time_to_lock_in_plot"] == pytest.approx(2.0)
++    assert sampler_s00001["time_to_lock_in"] == 3
++    assert sampler_s00001["time_to_lock_in_plot"] == pytest.approx(3.0)
+ 
+     assert avoider_rows["locked_in"].eq(False).all()
+     assert avoider_rows["time_to_lock_in"].eq(-1).all()
+-- 
+2.54.0
+

@@ -9,6 +9,8 @@ import seaborn as sns
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 
+from .plot_utils import save_figure_both_formats
+
 
 def heatmap(
     df: pd.DataFrame,
@@ -26,7 +28,7 @@ def heatmap(
     - <value> (numeric)
     """
     if "top_k" not in df.columns or "rank_alpha" not in df.columns:
-        raise ValueError("df must contain columns: 'top_k and 'rank_alpha'")
+        raise ValueError("df must contain columns: 'top_k' and 'rank_alpha'")
     if value not in df.columns:
         raise ValueError(f"df missing required column for heatmap value: {value!r}")
 
@@ -47,5 +49,5 @@ def heatmap(
     fig.tight_layout()
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=200)
+    save_figure_both_formats(fig, out_path)
     plt.close(fig)

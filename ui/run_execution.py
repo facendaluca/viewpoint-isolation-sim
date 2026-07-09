@@ -44,7 +44,7 @@ def execute_run(
     logger.info("Simulation run starting: cfg=%s mode=%s", cfg_path, mode.value)
 
     if mode is ExecutionMode.PLACEHOLDER:
-        run_dir = run_heuristic(resolved_cfg, cfg_path)
+        run_dir = run_heuristic(resolved_cfg, cfg_path=cfg_path)
         return RunResult(run_dir=run_dir, mode=mode)
 
     # Real simulation mode

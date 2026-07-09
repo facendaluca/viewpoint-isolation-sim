@@ -35,7 +35,7 @@ def _make_compare_run_data(
         persistence_window=2,
         rank_alpha=0.5,
         drift_alpha=0.1,
-        seeds=[seed],
+        seeds=[0],
     )
 
     episodes = [LockInEpisode(start_step=1, end_step=2, length=2)]

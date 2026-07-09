@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from fyp_sim.plotting.common import as_dataframe
 from fyp_sim.plotting.multi_agent_metrics import (
     build_phenotype_action_dynamics_summary,
     build_phenotype_lockin_outcome_summary,
@@ -179,8 +180,8 @@ def test_build_phenotype_trajectory_summary_returns_expected_grain_and_columns(
 
     # 3 phenotypes x 4 steps
     assert len(summary) == 12
-    assert summary.groupby(["phenotype", "step_id"]).size().eq(1).all()
-    assert summary["n_seeds"].eq(2).all()
+    assert bool(summary.groupby(["phenotype", "step_id"]).size().eq(1).all())
+    assert bool(summary["n_seeds"].eq(2).all())
     assert summary["vii_ci_lower"].between(0.0, 1.0).all()
     assert summary["vii_ci_upper"].between(0.0, 1.0).all()
 
@@ -222,9 +223,9 @@ def test_build_phenotype_action_dynamics_summary_returns_expected_rows_and_range
 
     # 3 phenotypes x 3 actions x 4 steps
     assert len(summary) == 36
-    assert summary.groupby(["phenotype", "action", "step_id"]).size().eq(1).all()
-    assert summary["n_seeds"].eq(2).all()
-    assert summary["rolling_window"].eq(2).all()
+    assert bool(summary.groupby(["phenotype", "action", "step_id"]).size().eq(1).all())
+    assert bool(summary["n_seeds"].eq(2).all())
+    assert bool(summary["rolling_window"].eq(2).all())
 
     for column in ("action_rate_mean", "action_rate_ci_lower", "action_rate_ci_upper"):
         assert summary[column].between(0.0, 1.0).all()
@@ -274,7 +275,7 @@ def test_build_phenotype_lockin_outcome_summary_marks_non_locking_cases_with_nan
 
     # 2 seeds x 3 phenotypes
     assert len(outcomes) == 6
-    assert outcomes.groupby(["seed", "phenotype"]).size().eq(1).all()
+    assert bool(outcomes.groupby(["seed", "phenotype"]).size().eq(1).all())
 
     watcher_s00000 = outcomes[
         (outcomes["seed"] == "s00000") & (outcomes["phenotype"] == "watcher")
@@ -282,7 +283,7 @@ def test_build_phenotype_lockin_outcome_summary_marks_non_locking_cases_with_nan
     sampler_s00001 = outcomes[
         (outcomes["seed"] == "s00001") & (outcomes["phenotype"] == "sampler")
     ].iloc[0]
-    avoider_rows = outcomes[outcomes["phenotype"] == "avoider"].sort_values("seed")
+    avoider_rows = as_dataframe(outcomes[outcomes["phenotype"] == "avoider"]).sort_values("seed")
 
     # time_to_lock_in reports the step at which the persistence window is first
     # satisfied (window=2 here), matching analysis.compute_lock_in_metrics.
@@ -294,9 +295,9 @@ def test_build_phenotype_lockin_outcome_summary_marks_non_locking_cases_with_nan
     assert sampler_s00001["time_to_lock_in"] == 3
     assert sampler_s00001["time_to_lock_in_plot"] == pytest.approx(3.0)
 
-    assert avoider_rows["locked_in"].eq(False).all()
-    assert avoider_rows["time_to_lock_in"].eq(-1).all()
-    assert avoider_rows["time_to_lock_in_plot"].isna().all()
+    assert bool(avoider_rows["locked_in"].eq(False).all())
+    assert bool(avoider_rows["time_to_lock_in"].eq(-1).all())
+    assert bool(avoider_rows["time_to_lock_in_plot"].isna().all())
 
 
 def test_write_phenotype_lockin_summary_csv_creates_expected_file(tmp_path: Path) -> None:

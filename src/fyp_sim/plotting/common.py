@@ -165,6 +165,19 @@ def _as_numeric_series(values: Any) -> pd.Series:
     return cast(pd.Series, pd.to_numeric(values, errors="raise"))
 
 
+def as_series(values: Any) -> pd.Series:
+    # The pandas type hints say column access can give back several shapes.
+    # The call sites using this always pick a single column, so pin the type
+    # down for the checker. No conversion happens at runtime.
+    return cast(pd.Series, values)
+
+
+def as_dataframe(values: Any) -> pd.DataFrame:
+    # Same idea for grouped or aggregated results that are always frames at
+    # the call sites using this.
+    return cast(pd.DataFrame, values)
+
+
 def validate_and_normalise_log(
     df: pd.DataFrame,
     *,

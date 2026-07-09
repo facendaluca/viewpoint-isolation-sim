@@ -330,9 +330,32 @@ python -m src.scripts.run_sweep configs/experiment_sweep.json
 
 # Generate plots for a specific run directory
 python -m src.scripts.make_plots --run-dir outputs/runs/YYYYMMDD/<run_id>
+
+# Generate heatmaps for a sweep run directory
+python -m src.scripts.make_sweep_plots --run-dir outputs/runs/YYYYMMDD/<sweep_run_id>
 ```
 
 Replace config paths with any JSON file under `configs/`.
+
+### Engine implementation selection
+
+The simulation can run with either engine implementation:
+
+- **Default baseline engine**: used when `engine` is omitted from the config, or when the config sets `"engine": "baseline"`.
+- **Optimised engine**: selected with `"engine": "opt"` in a config, or by passing `--engine opt` to supported CLI commands.
+
+```bash
+# Run with the default baseline engine
+python -m src.scripts.run_batch configs/eval/E1_baseline_single_watcher.json
+
+# Run the same config with the optimised engine
+python -m src.scripts.run_batch configs/eval/E1_baseline_single_watcher.json --engine opt
+
+# Benchmark the optimised engine for NFR-02
+python -m src.scripts.bench_nfr02 --engine opt
+```
+
+The recorded NFR-02 benchmark evidence shows the optimised engine meeting the requirement: `outputs/benchmarks/20260708/155935Z_bench_nfr02_d5a069dd/manifest.json` records `engine: opt`, 1000 steps over 1000 videos, a 1.0s threshold, mean runtime 0.328513s, and `pass: true`.
 
 ## Experiment artefacts
 
@@ -363,6 +386,7 @@ Performance benchmarks are included in `src/scripts/bench_nfr02.py`:
 
 ```bash
 python -m src.scripts.bench_nfr02
+python -m src.scripts.bench_nfr02 --engine opt
 ```
 
 ## LLM mode

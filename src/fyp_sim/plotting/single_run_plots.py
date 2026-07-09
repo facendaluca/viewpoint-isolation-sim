@@ -9,7 +9,7 @@ matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .common import LockInEpisode
+from .common import LockInEpisode, as_series
 from .plot_utils import (
     add_annotation_box,
     add_figure_subtitle,
@@ -34,7 +34,7 @@ def plot_vii_trajectory(
 ) -> None:
     fig, ax = plt.subplots(figsize=(10.8, 5.6))
 
-    mean_vii = float(df["viewpoint_distance"].mean())
+    mean_vii = float(as_series(df["viewpoint_distance"]).mean())
     final_isolation_index = float(df["isolation_index"].iloc[-1])
     share_at_or_below_threshold = float((df["viewpoint_distance"] <= threshold).mean())
 
@@ -94,7 +94,7 @@ def plot_vii_trajectory(
     add_figure_subtitle(fig, subtitle, y=0.942)
     ax.legend(loc="upper right")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    fig.tight_layout(rect=(0, 0, 1, 0.89))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -165,7 +165,7 @@ def plot_action_distribution(
     fig.suptitle("Figure B — Action distribution over time", y=0.985)
     add_figure_subtitle(fig, subtitle, y=0.942)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    fig.tight_layout(rect=(0, 0, 1, 0.89))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -255,7 +255,7 @@ def plot_lockin_episodes(
     add_figure_subtitle(fig, subtitle, y=0.942)
     ax.legend(loc="upper right")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    fig.tight_layout(rect=(0, 0, 1, 0.89))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -271,7 +271,7 @@ def plot_single_run_figures(run_dir: Path) -> Path:
         subtitle=context.subtitle,
     )
     plot_action_distribution(
-        step_ids=context.df["step_id"],
+        step_ids=as_series(context.df["step_id"]),
         action_data=action_data,
         out_path=context.out_dir / "figure_b_action_distribution.png",
         subtitle=context.subtitle,
