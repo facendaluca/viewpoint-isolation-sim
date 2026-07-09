@@ -31,11 +31,14 @@ def render_preset_selector(current_preset_id: str) -> str | None:
 
     st.write("Start from a preset scenario or configure advanced options below.")
 
+    def preset_label(preset_id: str) -> str:
+        return options.get(preset_id, preset_id)
+
     selected_id = st.selectbox(
         "Scenario Preset",
         options=preset_ids,
         index=idx,
-        format_func=lambda x: options.get(x, x),
+        format_func=preset_label,
     )
 
     for p in PRESETS:

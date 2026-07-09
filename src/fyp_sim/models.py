@@ -13,13 +13,14 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 
 class ConfigValidationError(ValueError):
     """Raised when an experiment config violates required invariants."""
 
 
-def _validate_unit_interval(value: object, *, field: str, owner: str) -> None:
+def _validate_unit_interval(value: Any, *, field: str, owner: str) -> None:
     """Fail fast if `value` is not a finite number in [0.0, 1.0]."""
     try:
         v = float(value)

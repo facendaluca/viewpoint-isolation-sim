@@ -1,7 +1,7 @@
 # ui/views/overview_content.py
 from __future__ import annotations
 
-from typing import Final
+from typing import Final, TypedDict
 
 PROJECT_SUMMARY: Final[list[str]] = [
     "This dashboard presents a controlled simulation study of short-form video recommendation rather than a live-platform replica.",
@@ -58,7 +58,12 @@ PRESET_GUIDE: Final[list[dict[str, str]]] = [
     },
 ]
 
-PARAMETER_GROUPS: Final[list[dict[str, object]]] = [
+class ParameterGroup(TypedDict):
+    title: str
+    items: list[tuple[str, str]]
+
+
+PARAMETER_GROUPS: Final[list[ParameterGroup]] = [
     {
         "title": "Run setup and reproducibility",
         "items": [

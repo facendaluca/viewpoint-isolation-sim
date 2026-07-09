@@ -206,7 +206,7 @@ def plot_phenotype_vii_trajectories(
     fig.suptitle("Figure E — Phenotype stance-distance trajectories", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -278,7 +278,7 @@ def plot_phenotype_action_dynamics(
     fig.suptitle("Figure F — Phenotype action dynamics", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -365,7 +365,7 @@ def plot_phenotype_lockin_outcomes(
     fig.suptitle("Figure G — Phenotype lock-in outcome comparison", y=0.985)
     add_figure_subtitle(fig, subtitle, y=0.94)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.86])
+    fig.tight_layout(rect=(0, 0, 1, 0.86))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 
@@ -450,7 +450,7 @@ def plot_phenotype_lockin_timeline(
     fig.suptitle("Supplementary — Phenotype lock-in timeline", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     save_figure_both_formats(fig, out_path)
     plt.close(fig)
 

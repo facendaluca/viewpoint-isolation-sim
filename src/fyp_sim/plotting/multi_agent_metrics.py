@@ -1,10 +1,13 @@
 from __future__ import annotations
-from typing import Any
+
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from .common import (
+    as_dataframe,
+    as_series,
     detect_lock_in_episodes,
     load_run_log_df,
     load_run_plot_params,
@@ -62,14 +65,13 @@ def _compute_ci_bounds(
 
 
 def _build_step_action_shares(group: pd.DataFrame) -> pd.DataFrame:
-    action_counts = (
+    counts = as_dataframe(
         group.assign(action=group["user_action"].astype(str).str.title())
         .groupby(["step_id", "action"], sort=True)
         .size()
         .unstack(fill_value=0)
-        .reindex(columns=list(ACTION_ORDER), fill_value=0)
-        .sort_index()
     )
+    action_counts = counts.reindex(columns=list(ACTION_ORDER), fill_value=0).sort_index()
 
     totals = action_counts.sum(axis=1).astype(float)
     totals = totals.where(totals > 0, 1.0)
@@ -101,14 +103,16 @@ def build_phenotype_seed_trajectories(run_dir: Path) -> pd.DataFrame:
     for seed_dir in seed_dirs(run_dir):
         df = _load_multi_agent_seed_df(run_dir, seed_dir)
 
-        grouped = (
-            df.groupby(["phenotype", "step_id"], as_index=False)
-            .agg(viewpoint_distance=("viewpoint_distance", "mean"))
-            .sort_values(["phenotype", "step_id"], kind="stable")
-            .reset_index(drop=True)
+        grouped = as_dataframe(
+            df.groupby(["phenotype", "step_id"], as_index=False).agg(
+                viewpoint_distance=("viewpoint_distance", "mean")
+            )
+        )
+        grouped = grouped.sort_values(["phenotype", "step_id"], kind="stable").reset_index(
+            drop=True
         )
         grouped["seed"] = seed_dir.name
-        rows.append(grouped[["seed", "phenotype", "step_id", "viewpoint_distance"]])
+        rows.append(as_dataframe(grouped[["seed", "phenotype", "step_id", "viewpoint_distance"]]))
 
     if not rows:
         raise ValueError(f"No multi-agent seed trajectories found in: {run_dir}")
@@ -119,20 +123,19 @@ def build_phenotype_seed_trajectories(run_dir: Path) -> pd.DataFrame:
 def build_phenotype_trajectory_summary(run_dir: Path) -> pd.DataFrame:
     seed_traces = build_phenotype_seed_trajectories(run_dir)
 
-    summary = (
-        seed_traces.groupby(["phenotype", "step_id"], as_index=False)
-        .agg(
+    summary = as_dataframe(
+        seed_traces.groupby(["phenotype", "step_id"], as_index=False).agg(
             n_seeds=("seed", "nunique"),
             vii_mean=("viewpoint_distance", "mean"),
             vii_std=("viewpoint_distance", lambda s: s.std(ddof=1) if len(s) > 1 else 0.0),
         )
-        .sort_values(["phenotype", "step_id"], kind="stable")
-        .reset_index(drop=True)
     )
+    summary = summary.sort_values(["phenotype", "step_id"], kind="stable").reset_index(drop=True)
 
-    sqrt_n = summary["n_seeds"].where(summary["n_seeds"] > 0, 1).astype(float).pow(0.5)
-    stderr = summary["vii_std"] / sqrt_n
-    ci_half_width = (1.96 * stderr).where(summary["n_seeds"] > 1, 0.0)
+    n_seeds = as_series(summary["n_seeds"])
+    sqrt_n = n_seeds.where(n_seeds > 0, 1).astype(float).pow(0.5)
+    stderr = as_series(summary["vii_std"]) / sqrt_n
+    ci_half_width = as_series(1.96 * stderr).where(n_seeds > 1, 0.0)
 
     summary["vii_ci_lower"] = (summary["vii_mean"] - ci_half_width).clip(0.0, 1.0)
     summary["vii_ci_upper"] = (summary["vii_mean"] + ci_half_width).clip(0.0, 1.0)
@@ -164,16 +167,14 @@ def build_phenotype_action_summary(run_dir: Path) -> pd.DataFrame:
 
     seed_level = pd.DataFrame(rows)
 
-    summary = (
-        seed_level.groupby(["phenotype", "action"], as_index=False)
-        .agg(
+    summary = as_dataframe(
+        seed_level.groupby(["phenotype", "action"], as_index=False).agg(
             proportion_mean=("proportion", "mean"),
             proportion_std=("proportion", lambda s: s.std(ddof=1) if len(s) > 1 else 0.0),
             n_seeds=("seed", "nunique"),
         )
-        .sort_values(["phenotype", "action"], kind="stable")
-        .reset_index(drop=True)
     )
+    summary = summary.sort_values(["phenotype", "action"], kind="stable").reset_index(drop=True)
 
     return summary
 
@@ -218,21 +219,21 @@ def build_phenotype_action_dynamics_summary(
 
     seed_level = pd.concat(rows, ignore_index=True)
 
-    summary = (
-        seed_level.groupby(["phenotype", "action", "step_id"], as_index=False)
-        .agg(
+    summary = as_dataframe(
+        seed_level.groupby(["phenotype", "action", "step_id"], as_index=False).agg(
             n_seeds=("seed", "nunique"),
             action_rate_mean=("action_rate", "mean"),
             action_rate_std=("action_rate", lambda s: s.std(ddof=1) if len(s) > 1 else 0.0),
         )
-        .sort_values(["phenotype", "action", "step_id"], kind="stable")
-        .reset_index(drop=True)
+    )
+    summary = summary.sort_values(["phenotype", "action", "step_id"], kind="stable").reset_index(
+        drop=True
     )
 
     summary["action_rate_ci_lower"], summary["action_rate_ci_upper"] = _compute_ci_bounds(
-        mean_series=summary["action_rate_mean"],
-        std_series=summary["action_rate_std"],
-        n_series=summary["n_seeds"],
+        mean_series=as_series(summary["action_rate_mean"]),
+        std_series=as_series(summary["action_rate_std"]),
+        n_series=as_series(summary["n_seeds"]),
     )
     summary["rolling_window"] = resolved_window
 

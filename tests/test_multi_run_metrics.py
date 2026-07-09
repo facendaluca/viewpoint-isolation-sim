@@ -113,7 +113,7 @@ def test_build_multi_run_vii_summary_collapses_repeated_step_ids_within_each_see
     summary = build_multi_run_vii_summary(run_dir)
 
     assert summary["step_id"].tolist() == [0, 1, 2, 3]
-    assert summary.groupby("step_id").size().eq(1).all()
+    assert bool(summary.groupby("step_id").size().eq(1).all())
 
     step0 = summary.loc[summary["step_id"] == 0].iloc[0]
     step1 = summary.loc[summary["step_id"] == 1].iloc[0]

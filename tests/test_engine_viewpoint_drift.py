@@ -1,5 +1,6 @@
 import random
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -36,8 +37,8 @@ def test_viewpoint_drift_disabled_is_noop_and_logs_pre_post_equal(monkeypatch):
         lambda prev, t, x: x if t == 0 else (prev * t + x) / (t + 1),
     )
 
-    user = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
-    video = SimpleNamespace(video_id=1, viewpoint_score=0.9, topic_category="topic", duration_s=30)
+    user: Any = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
+    video: Any = SimpleNamespace(video_id=1, viewpoint_score=0.9, topic_category="topic", duration_s=30)
 
     logs = engine.run_simulation(
         user=user,
@@ -68,8 +69,8 @@ def test_viewpoint_drift_enabled_moves_toward_target_and_chains_state(monkeypatc
         lambda prev, t, x: x if t == 0 else (prev * t + x) / (t + 1),
     )
 
-    user = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
-    video = SimpleNamespace(video_id=1, viewpoint_score=1.0, topic_category="topic", duration_s=30)
+    user: Any = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
+    video: Any = SimpleNamespace(video_id=1, viewpoint_score=1.0, topic_category="topic", duration_s=30)
 
     logs = engine.run_simulation(
         user=user,
@@ -108,8 +109,8 @@ def test_viewpoint_drift_applies_when_only_drift_alpha_is_passed(monkeypatch):
         lambda prev, t, x: x if t == 0 else (prev * t + x) / (t + 1),
     )
 
-    user = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
-    video = SimpleNamespace(video_id=1, viewpoint_score=1.0, topic_category="topic", duration_s=30)
+    user: Any = SimpleNamespace(viewpoint_score=0.2, interest_vector={})
+    video: Any = SimpleNamespace(video_id=1, viewpoint_score=1.0, topic_category="topic", duration_s=30)
 
     logs = engine.run_simulation(
         user=user,
@@ -138,8 +139,8 @@ def test_viewpoint_drift_enabled_but_avoid_action_is_noop(monkeypatch):
         lambda prev, t, x: x if t == 0 else (prev * t + x) / (t + 1),
     )
 
-    user = SimpleNamespace(viewpoint_score=0.3, interest_vector={})
-    video = SimpleNamespace(video_id=1, viewpoint_score=0.9, topic_category="topic", duration_s=30)
+    user: Any = SimpleNamespace(viewpoint_score=0.3, interest_vector={})
+    video: Any = SimpleNamespace(video_id=1, viewpoint_score=0.9, topic_category="topic", duration_s=30)
 
     logs = engine.run_simulation(
         user=user,

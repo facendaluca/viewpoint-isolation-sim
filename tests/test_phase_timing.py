@@ -9,7 +9,7 @@ class DummyDecider:
     def __init__(self) -> None:
         self.last_meta = None
 
-    def decide_next_action(self, user: User, v: Video) -> UserAction:
+    def decide_next_action(self, user: User, video: Video) -> UserAction:
         return UserAction.WATCH
 
 

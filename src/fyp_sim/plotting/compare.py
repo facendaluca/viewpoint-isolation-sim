@@ -112,7 +112,7 @@ def make_compare_plot(
         ax_vii.errorbar(
             i,
             row["mean_vii_mean"],
-            yerr=row["mean_vii_std"] if pd.notna(row["mean_vii_std"]) else 0.0,
+            yerr=row["mean_vii_std"] if bool(pd.notna(row["mean_vii_std"])) else 0.0,
             fmt="None",
             capsize=4,
         )
@@ -126,7 +126,7 @@ def make_compare_plot(
         ax_wt.errorbar(
             i,
             row["mean_watch_time_mean"],
-            yerr=row["mean_watch_time_std"] if pd.notna(row["mean_watch_time_std"]) else 0.0,
+            yerr=row["mean_watch_time_std"] if bool(pd.notna(row["mean_watch_time_std"])) else 0.0,
             fmt="None",
             capsize=4,
         )

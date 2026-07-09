@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -59,32 +60,32 @@ def _darwin_pretty_name() -> str | None:
 
 
 def _windows_total_ram_bytes() -> int | None:
+    # ctypes.windll only exists on Windows, so answer early everywhere else.
+    if sys.platform != "win32":
+        return None
     try:
         import ctypes
-    except Exception:
-        return None
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_uint),
+                ("dwMemoryLoad", ctypes.c_uint),
+                ("ullTotalPhys", ctypes.c_uint64),
+                ("ullAvailPhys", ctypes.c_uint64),
+                ("ullTotalPageFile", ctypes.c_uint64),
+                ("ullAvailPageFile", ctypes.c_uint64),
+                ("ullTotalVirtual", ctypes.c_uint64),
+                ("ullAvailVirtual", ctypes.c_uint64),
+                ("ullAvailExtendedVirtual", ctypes.c_uint64),
+            ]
 
-    class MEMORYSTATUSEX(ctypes.Structure):
-        _fields_ = [
-            ("dwLength", ctypes.c_uint),
-            ("dwMemoryLoad", ctypes.c_uint),
-            ("ullTotalPhys", ctypes.c_uint64),
-            ("ullAvailPhys", ctypes.c_uint64),
-            ("ullTotalPageFile", ctypes.c_uint64),
-            ("ullAvailPageFile", ctypes.c_uint64),
-            ("ullTotalVirtual", ctypes.c_uint64),
-            ("ullAvailVirtual", ctypes.c_uint64),
-            ("ullAvailExtendedVirtual", ctypes.c_uint64),
-        ]
-
-    stat = MEMORYSTATUSEX()
-    stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-    try:
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)) == 0:
+        stat = MEMORYSTATUSEX()
+        stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        windll = getattr(ctypes, "windll", None)
+        if windll is None or windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)) == 0:
             return None
+        return int(stat.ullTotalPhys)
     except Exception:
         return None
-    return int(stat.ullTotalPhys)
 
 
 def _os_pretty_name(system: str) -> str | None:

@@ -20,7 +20,7 @@ class AlwaysDecide:
 
 def choose_first(
     user: User,
-    video_pool: list[Video],
+    pool: list[Video],
     rng: random.Random,
     *,
     top_k: int,
@@ -28,7 +28,7 @@ def choose_first(
 ) -> Video:
     """Chooser matching engine signature; deterministic for tests."""
     _ = (user, rng, top_k, rank_alpha)
-    return video_pool[0]
+    return pool[0]
 
 
 @pytest.mark.parametrize(

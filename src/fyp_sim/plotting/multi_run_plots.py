@@ -8,7 +8,7 @@ matplotlib.use("Agg", force=True)
 
 import matplotlib.pyplot as plt
 
-from .common import ensure_dir, load_run_plot_params, seed_dirs
+from .common import as_series, ensure_dir, load_run_plot_params, seed_dirs
 from .multi_run_metrics import build_multi_run_vii_summary, write_multi_run_summary_csv
 from .plot_utils import (
     add_annotation_box,
@@ -38,7 +38,7 @@ def plot_multi_run_variability(run_dir: Path) -> Path | None:
         drift_alpha=params.drift_alpha,
     )
 
-    mean_vii = float(summary["vii_mean"].mean())
+    mean_vii = float(as_series(summary["vii_mean"]).mean())
     share_at_or_below_threshold = float((summary["vii_mean"] <= params.threshold).mean())
     max_ci_width = float((summary["vii_ci_upper"] - summary["vii_ci_lower"]).max())
 
@@ -100,7 +100,7 @@ def plot_multi_run_variability(run_dir: Path) -> Path | None:
     add_figure_subtitle(fig, subtitle, y=0.942)
     ax.legend(loc="upper right")
 
-    fig.tight_layout(rect=[0, 0, 1, 0.89])
+    fig.tight_layout(rect=(0, 0, 1, 0.89))
 
     out_path = out_dir / "figure_d_multi_run_variability.png"
     save_figure_both_formats(fig, out_path)

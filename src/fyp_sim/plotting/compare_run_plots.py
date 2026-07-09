@@ -62,7 +62,7 @@ def plot_vii_overlay(a: CompareRunData, b: CompareRunData) -> Figure:
     ax.grid(axis="y", alpha=0.18)
     ax.legend(loc="upper right")
     fig.suptitle("Viewpoint Distance Trajectory — Run A vs Run B")
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
@@ -89,7 +89,7 @@ def plot_lockin_timeline(a: CompareRunData, b: CompareRunData) -> Figure:
 
     ax_b.set_xlabel("Step")
     fig.suptitle("Lock-in Timeline Comparison")
-    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     return fig
 
 
