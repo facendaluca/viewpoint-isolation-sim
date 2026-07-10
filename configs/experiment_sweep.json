@@ -1,6 +1,15 @@
 {
   "policy": {
-    "mode": "heuristic"
+    "mode": "llm",
+    "llm": {
+      "base_url": "http://100.127.102.30:1234/v1",
+      "model": "qwen3-4b-instruct-2507",
+      "prompt_id": "decision_v3.2",
+      "rerank_slate": false,
+      "timeout_s": 15,
+      "temperature": 0.0,
+      "max_tokens": 200
+    }
   },
   "steps": 400,
   "engine": "baseline",
@@ -9,12 +18,15 @@
   "top_k_grid": [1, 2, 3, 5, 10],
   "lock_in_threshold": 0.2,
   "persistence_window": 10,
-  "enable_interest_updates": false,
+  "enable_interest_updates": true,
   "interest_topic_alpha": 0.10,
   "interest_tag_alpha": 0.05,
   "interest_decay": 0.02,
   "interest_normalise": false,
   "interest_prune_below": 0.001,
+  "drift_alpha": 0.02,
+  "enable_viewpoint_drift": true,
+  "separate_rng_streams": true,
   "user": {
     "phenotype": "sampler",
     "viewpoint_score": 0.4,

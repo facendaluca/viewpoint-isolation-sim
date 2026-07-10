@@ -4,7 +4,8 @@
     "llm": {
       "base_url": "http://100.127.102.30:1234/v1",
       "model": "qwen3-4b-instruct-2507",
-      "prompt_id": "decision_v2.4",
+      "prompt_id": "decision_v3.2",
+      "rerank_slate": false,
       "timeout_s": 15,
       "temperature": 0.0,
       "max_tokens": 200
@@ -14,6 +15,7 @@
   "top_k": 5,
   "rank_alpha": 0.3,
   "drift_alpha": 0.0,
+  "enable_viewpoint_drift": false,
   "lock_in_threshold": 0.2,
   "persistence_window": 10,
   "enable_interest_updates": false,
@@ -22,6 +24,7 @@
   "interest_decay": 0.02,
   "interest_normalise": false,
   "interest_prune_below": 0.001,
+  "separate_rng_streams": true,
   "engine": "baseline",
   "seeds": [0, 1, 2, 3, 4],
   "user": {

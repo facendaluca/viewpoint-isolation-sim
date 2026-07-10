@@ -47,9 +47,10 @@ def test_run_compare_isolates_outputs_and_counts_every_rerank_call(
 
     for path in diagnostics_files:
         diagnostics = json.loads(path.read_text(encoding="utf-8"))
-        assert diagnostics["llm_expected_call_count"] == 8
-        assert diagnostics["llm_call_count"] == 8
-        assert diagnostics["llm_valid_count"] == 8
+        expected_calls = cfg["steps"] * cfg["top_k"]
+        assert diagnostics["llm_expected_call_count"] == expected_calls
+        assert diagnostics["llm_call_count"] == expected_calls
+        assert diagnostics["llm_valid_count"] == expected_calls
         assert diagnostics["llm_fallback_count"] == 0
         assert diagnostics["llm_prompt_id"] == "decision_v3.2"
         assert (path.parent / "comparison_diagnostics.json").exists()

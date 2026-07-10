@@ -60,7 +60,10 @@ def test_compare_requires_separate_rng_streams() -> None:
 def test_dormant_llm_block_is_reported() -> None:
     root = Path(__file__).resolve().parents[1]
     path = root / "configs" / "experiment_baseline_drift.json"
-    audit = validate_experiment_config(_load(path), runner="batch", cfg_path=path)
+    cfg = _load(path)
+    cfg["policy"]["mode"] = "heuristic"
+    cfg["viewpoint_drift_rate"] = cfg["drift_alpha"]
+    audit = validate_experiment_config(cfg, runner="batch", cfg_path=path)
 
     assert any("policy.llm is dormant" in warning for warning in audit.warnings)
     assert any("redundant legacy alias" in warning for warning in audit.warnings)
