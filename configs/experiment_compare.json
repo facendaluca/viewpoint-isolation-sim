@@ -2,9 +2,10 @@
   "policy": {
     "mode": "llm",
     "llm": {
-      "base_url": "http://localhost:1234/v1",
-      "model": "llama-3.2-3b-instruct",
-      "prompt_id": "decision_v1",
+      "base_url": "http://100.127.102.30:1234/v1",
+      "model": "qwen3-4b-instruct-2507",
+      "prompt_id": "decision_v2.4",
+      "rerank_slate": true,
       "timeout_s": 15,
       "temperature": 0.0,
       "max_tokens": 200
@@ -12,297 +13,105 @@
   },
   "steps": 150,
   "engine": "baseline",
-  "top_k": 5,
-  "rank_alpha": 0.65,
-  "drift_alpha": 0.0,
+  "top_k": 2,
+  "rank_alpha": 0.3,
+  "drift_alpha": 0.02,
+  "enable_interest_updates": true,
+  "enable_viewpoint_drift": true,
+  "separate_rng_streams": true,
   "lock_in_threshold": 0.35,
   "persistence_window": 20,
-  "seeds": [
-    0,
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8,
-    9
-  ],
+  "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
   "user": {
-    "phenotype": "watcher",
-    "viewpoint_score": 0.05,
-    "sentiment_threshold": -0.35,
+    "phenotype": "sampler",
+    "viewpoint_score": 0.4,
+    "sentiment_threshold": -0.2,
     "interest_vector": {
-      "politics": 0.75,
-      "news": 0.55,
-      "debate": 0.8,
-      "podcast": 0.6,
-      "meme": 0.9,
-      "satire": 0.65,
-      "international_news": 0.45,
+      "politics": 0.45,
+      "international_news": 0.35,
+      "comedy_memes": 0.55,
+      "health_wellness": 0.25,
+      "diy_life_hacks": 0.2,
+      "fashion_beauty": 0.15,
       "sports": 0.2,
+      "meme": 0.72,
+      "news": 0.5,
+      "debate": 0.45,
+      "podcast": 0.25,
+      "satire": 0.4,
+      "football": 0.2,
       "sleep": 0.15,
-      "health_wellness": 0.1,
-      "ragebait": 0.55
+      "viral": 0.45,
+      "tech": 0.2
     }
   },
-  "video_pool": [
-    {
-      "video_id": 1,
-      "topic_category": "politics",
-      "viewpoint_score": 0.05,
-      "sentiment_score": -0.25,
-      "duration_s": 80,
-      "tags": [
-        "news",
-        "debate",
-        "ragebait"
-      ]
-    },
-    {
-      "video_id": 2,
-      "topic_category": "politics",
-      "viewpoint_score": 0.125,
-      "sentiment_score": -0.15,
-      "duration_s": 65,
-      "tags": [
-        "debate",
-        "podcast"
-      ]
-    },
-    {
-      "video_id": 3,
-      "topic_category": "politics",
-      "viewpoint_score": 0.2,
-      "sentiment_score": 0.05,
-      "duration_s": 55,
-      "tags": [
-        "satire",
-        "meme"
-      ]
-    },
-    {
-      "video_id": 4,
-      "topic_category": "politics",
-      "viewpoint_score": 0.325,
-      "sentiment_score": 0.1,
-      "duration_s": 40,
-      "tags": [
-        "news"
-      ]
-    },
-    {
-      "video_id": 5,
-      "topic_category": "politics",
-      "viewpoint_score": 0.425,
-      "sentiment_score": 0.15,
-      "duration_s": 35,
-      "tags": [
-        "meme"
-      ]
-    },
-    {
-      "video_id": 6,
-      "topic_category": "politics",
-      "viewpoint_score": 0.15,
-      "sentiment_score": 0.15,
-      "duration_s": 35,
-      "tags": [
-        "meme"
-      ]
-    },
-    {
-      "video_id": 7,
-      "topic_category": "politics",
-      "viewpoint_score": 0.35,
-      "sentiment_score": 0.1,
-      "duration_s": 40,
-      "tags": [
-        "news"
-      ]
-    },
-    {
-      "video_id": 8,
-      "topic_category": "politics",
-      "viewpoint_score": 0.6,
-      "sentiment_score": 0.05,
-      "duration_s": 55,
-      "tags": [
-        "satire",
-        "meme"
-      ]
-    },
-    {
-      "video_id": 9,
-      "topic_category": "politics",
-      "viewpoint_score": 0.75,
-      "sentiment_score": -0.15,
-      "duration_s": 65,
-      "tags": [
-        "debate",
-        "podcast"
-      ]
-    },
-    {
-      "video_id": 10,
-      "topic_category": "politics",
-      "viewpoint_score": 0.9,
-      "sentiment_score": -0.25,
-      "duration_s": 80,
-      "tags": [
-        "news",
-        "debate",
-        "ragebait"
-      ]
-    },
-    {
-      "video_id": 11,
-      "topic_category": "international_news",
-      "viewpoint_score": 0.225,
-      "sentiment_score": -0.2,
-      "duration_s": 70,
-      "tags": [
-        "news",
-        "podcast"
-      ]
-    },
-    {
-      "video_id": 12,
-      "topic_category": "international_news",
-      "viewpoint_score": 0.55,
-      "sentiment_score": -0.2,
-      "duration_s": 70,
-      "tags": [
-        "news",
-        "podcast"
-      ]
-    },
-    {
-      "video_id": 13,
-      "topic_category": "sports",
-      "viewpoint_score": 0.45,
-      "sentiment_score": 0.25,
-      "duration_s": 30,
-      "tags": [
-        "meme"
-      ]
-    },
-    {
-      "video_id": 14,
-      "topic_category": "sports",
-      "viewpoint_score": 0.1,
-      "sentiment_score": 0.25,
-      "duration_s": 30,
-      "tags": [
-        "meme"
-      ]
-    },
-    {
-      "video_id": 15,
-      "topic_category": "sleep",
-      "viewpoint_score": 0.0,
-      "sentiment_score": 0.3,
-      "duration_s": 45,
-      "tags": [
-        "health_wellness"
-      ]
-    },
-    {
-      "video_id": 16,
-      "topic_category": "health_wellness",
-      "viewpoint_score": 0.05,
-      "sentiment_score": 0.3,
-      "duration_s": 50,
-      "tags": [
-        "sleep"
-      ]
-    },
-    {
-      "video_id": 17,
-      "topic_category": "politics",
-      "viewpoint_score": 0.075,
-      "sentiment_score": -0.3,
-      "duration_s": 90,
-      "tags": [
-        "ragebait",
-        "news"
-      ]
-    },
-    {
-      "video_id": 18,
-      "topic_category": "politics",
-      "viewpoint_score": 0.85,
-      "sentiment_score": -0.3,
-      "duration_s": 90,
-      "tags": [
-        "ragebait",
-        "news"
-      ]
-    },
-    {
-      "video_id": 19,
-      "topic_category": "politics",
-      "viewpoint_score": 0.275,
-      "sentiment_score": -0.1,
-      "duration_s": 60,
-      "tags": [
-        "debate"
-      ]
-    },
-    {
-      "video_id": 20,
-      "topic_category": "politics",
-      "viewpoint_score": 0.45,
-      "sentiment_score": -0.1,
-      "duration_s": 60,
-      "tags": [
-        "debate"
-      ]
-    },
-    {
-      "video_id": 21,
-      "topic_category": "politics",
-      "viewpoint_score": 0.475,
-      "sentiment_score": 0.2,
-      "duration_s": 25,
-      "tags": [
-        "meme",
-        "satire"
-      ]
-    },
-    {
-      "video_id": 22,
-      "topic_category": "politics",
-      "viewpoint_score": 0.05,
-      "sentiment_score": 0.2,
-      "duration_s": 25,
-      "tags": [
-        "meme",
-        "satire"
-      ]
-    },
-    {
-      "video_id": 23,
-      "topic_category": "international_news",
-      "viewpoint_score": 0.15,
-      "sentiment_score": -0.15,
-      "duration_s": 75,
-      "tags": [
-        "news",
-        "debate"
-      ]
-    },
-    {
-      "video_id": 24,
-      "topic_category": "international_news",
-      "viewpoint_score": 0.7,
-      "sentiment_score": -0.15,
-      "duration_s": 75,
-      "tags": [
-        "news",
-        "debate"
-      ]
+  "corpus": {
+    "source": "generated",
+    "n_videos": 50,
+    "seed": 260303,
+    "generator": {
+      "topic": {
+        "weights": {
+          "comedy_memes": 0.30,
+          "health_wellness": 0.1667,
+          "diy_life_hacks": 0.1667,
+          "fashion_beauty": 0.1666,
+          "politics": 0.10,
+          "sports": 0.05,
+          "international_news": 0.05
+        }
+      },
+      "sentiment": {
+        "weights": {
+          "-1.0": 0.15,
+          "0.0": 0.70,
+          "1.0": 0.15
+        }
+      },
+      "viewpoint": {
+        "weights": {
+          "0.0": 0.20,
+          "0.5": 0.60,
+          "1.0": 0.20
+        }
+      },
+      "duration": {
+        "dist": "lognormal",
+        "params": {
+          "mean": 3.5,
+          "sigma": 0.6
+        },
+        "min": 10,
+        "max": 180
+      },
+      "tags": {
+        "vocab": [
+          "meme",
+          "news",
+          "viral",
+          "cats",
+          "football",
+          "basketball",
+          "gym",
+          "meditation",
+          "sleep",
+          "diet",
+          "politics",
+          "debate",
+          "satire",
+          "podcast",
+          "travel",
+          "science",
+          "tech",
+          "gaming",
+          "music",
+          "fashion"
+        ],
+        "per_video": {
+          "min": 0,
+          "max": 1
+        }
+      }
     }
-  ]
+  }
 }

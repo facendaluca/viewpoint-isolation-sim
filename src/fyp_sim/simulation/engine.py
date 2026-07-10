@@ -134,6 +134,53 @@ def choose_video_weighted_top_k(
     return rng.choices(candidates, weights=weights, k=1)[0]
 
 
+def select_video_llm_slate(
+    user: User,
+    pool: list[Video],
+    rng,
+    *,
+    top_k: int,
+    rank_alpha: float,
+    decider: ActionDecider,
+):
+    """LLM-in-loop selection: heuristic ranking preselects the top_k slate, then the
+    decider's action for each candidate replaces the heuristic engagement proxy.
+
+    Scoring stays the same convex combination as video_score, so rank_alpha keeps its
+    meaning: it now weights how much the decider's action (Watch > Sample > Avoid)
+    influences exposure. The decider is only asked about the slate, never the full
+    corpus, which keeps LLM cost bounded. If the decider falls back to the heuristic
+    for a candidate, that candidate's score matches the plain heuristic score.
+
+    Returns (video, action, meta) so the caller can reuse the chosen candidate's
+    decision instead of asking the decider a second time.
+    """
+    if top_k <= 0:
+        raise ValueError("top_k must be > 0")
+
+    max_d = max(v.duration_s for v in pool) if pool else 0
+
+    # Cheap first pass: identical ranking to choose_video_weighted_top_k.
+    scored = [(video_score(user, v, rank_alpha=rank_alpha, max_duration=max_d), v) for v in pool]
+    scored.sort(key=lambda x: (-x[0], x[1].video_id))
+    slate = [v for _, v in scored[: min(top_k, len(scored))]]
+
+    # Second pass: rescore the slate with the decider's own action.
+    rescored = []
+    for v in slate:
+        action = decider.decide_next_action(user, v)
+        meta = getattr(decider, "last_meta", None)
+        e = engagement_proxy(action, v, max_duration=max_d)
+        i = interest_score(user, v)
+        rescored.append(((1.0 - rank_alpha) * i + rank_alpha * e, v, action, meta))
+
+    rescored.sort(key=lambda x: (-x[0], x[1].video_id))
+    weights = [max(s, 0.0) + 1e-9 for s, _, _, _ in rescored]
+    idx = rng.choices(range(len(rescored)), weights=weights, k=1)[0]
+    _, video, action, meta = rescored[idx]
+    return video, action, meta
+
+
 class ChooserFn(Protocol):
     def __call__(
         self,
@@ -173,6 +220,9 @@ def run_simulation(
     video_pool: list[Video],
     steps: int,
     rng,
+    # Optional separate stream for watch-time randomness; defaults to rng so
+    # existing callers keep byte-identical behaviour.
+    engagement_rng=None,
     top_k: int = 3,
     rank_alpha: float | None = None,
     drift_alpha: float | None = None,
@@ -181,6 +231,9 @@ def run_simulation(
     chooser: ChooserFn = choose_video_weighted_top_k,
     watch_time_fn=watch_time_seconds,
     decider: ActionDecider | None = None,
+    # LLM-in-loop: rerank the top_k slate with the decider before choosing.
+    # Ignores any custom chooser (see select_video_llm_slate).
+    llm_rerank: bool = False,
     enable_interest_updates: bool = False,
     interest_topic_alpha: float = 0.10,
     interest_tag_alpha: float = 0.05,
@@ -222,6 +275,9 @@ def run_simulation(
     if decider is None:
         decider = HeuristicDecider()
 
+    if engagement_rng is None:
+        engagement_rng = rng
+
     # Pass the decider's action into the engagement mapping when supported, so the
     # logged action and its watch-time signal agree in every policy mode. Older
     # watch_time_fn callables without an 'action' parameter keep working unchanged.
@@ -241,9 +297,15 @@ def run_simulation(
     if phase_tracer is None:
         for t in range(steps):
             # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
-            v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
-            action = decider.decide_next_action(user, v)
-            wt = _watch_time(user, v, rng, action)
+            if llm_rerank:
+                v, action, meta = select_video_llm_slate(
+                    user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha, decider=decider
+                )
+            else:
+                v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+                action = decider.decide_next_action(user, v)
+                meta = getattr(decider, "last_meta", None)
+            wt = _watch_time(user, v, engagement_rng, action)
 
             if enable_interest_updates and action == UserAction.WATCH:
                 update_interest_vector(
@@ -277,8 +339,6 @@ def run_simulation(
             user_viewpoint_post = float(user.viewpoint_score)
 
             # Log policy/LLM metadata
-            meta = getattr(decider, "last_meta", None)
-
             policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
             llm_prompt_id = getattr(meta, "prompt_id", "") or ""
             llm_valid = bool(getattr(meta, "valid", True)) if meta else True
@@ -314,12 +374,21 @@ def run_simulation(
     # Profiled path: record per-phase timings via the provided tracer.
     tracer = phase_tracer
     for t in range(steps):
-        with tracer.phase("generate_feed"):
-            v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+        if llm_rerank:
+            with tracer.phase("generate_feed"):
+                v, action, meta = select_video_llm_slate(
+                    user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha, decider=decider
+                )
+            with tracer.phase("simulate_interaction"):
+                wt = _watch_time(user, v, engagement_rng, action)
+        else:
+            with tracer.phase("generate_feed"):
+                v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
 
-        with tracer.phase("simulate_interaction"):
-            action = decider.decide_next_action(user, v)
-            wt = _watch_time(user, v, rng, action)
+            with tracer.phase("simulate_interaction"):
+                action = decider.decide_next_action(user, v)
+                meta = getattr(decider, "last_meta", None)
+                wt = _watch_time(user, v, engagement_rng, action)
 
         with tracer.phase("update_state"):
             if enable_interest_updates and action == UserAction.WATCH:
@@ -352,7 +421,6 @@ def run_simulation(
             user_viewpoint_post = float(user.viewpoint_score)
 
         with tracer.phase("log_append"):
-            meta = getattr(decider, "last_meta", None)
             policy_mode = getattr(meta, "policy_mode", "heuristic") if meta else "heuristic"
             llm_prompt_id = getattr(meta, "prompt_id", "") or ""
             llm_valid = bool(getattr(meta, "valid", True)) if meta else True

@@ -39,7 +39,7 @@ def build_decider(cfg: dict[str, Any]):
             raise ValueError("policy.llm.model is required when policy.mode='llm'")
 
         client = OpenAICompatClient(
-            base_url=(llm_cfg.get("base_url") or "http://localhost:1234/v1"),
+            base_url=(llm_cfg.get("base_url") or "http://100.127.102.30:1234/v1"),
             model=str(llm_cfg.get("model")),
             api_key=llm_cfg.get("api_key"),
             temperature=float(llm_cfg.get("temperature", 0.0)),
@@ -131,6 +131,16 @@ def run_seed_sweep(
     chooser = _make_chooser(curiosity, base_chooser)
     decider = build_decider(cfg)
 
+    # LLM-in-loop: rerank the top_k slate with the LLM decider (LLM mode only).
+    llm_policy = policy_mode(cfg) == "llm"
+    llm_cfg = (cfg.get("policy") or {}).get("llm") or {}
+    llm_rerank = llm_policy and bool(llm_cfg.get("rerank_slate", False))
+    if llm_rerank and curiosity > 0.0:
+        raise ValueError("policy.curiosity is not supported with policy.llm.rerank_slate")
+
+    # Opt-in: separate stream for watch-time draws so they can't shift exposure.
+    separate_rng_streams = bool(cfg.get("separate_rng_streams", False))
+
     # Cohort support
     agents = parse_agents(cfg)
     include_agent_id = len(agents) > 1
@@ -172,6 +182,11 @@ def run_seed_sweep(
 
         for agent_id, agent_user_dict in agents:
             agent_rng = random.Random(derive_agent_seed(seed, agent_id))
+            engagement_rng = (
+                random.Random(derive_agent_seed(seed, f"{agent_id}:engagement"))
+                if separate_rng_streams
+                else None
+            )
 
             if base_user is not None:
                 user = base_user
@@ -183,11 +198,13 @@ def run_seed_sweep(
                 video_pool=pool,
                 steps=steps,
                 rng=agent_rng,
+                engagement_rng=engagement_rng,
                 top_k=top_k,
                 rank_alpha=rank_alpha,
                 drift_alpha=drift_alpha,
                 chooser=chooser,
                 decider=decider,
+                llm_rerank=llm_rerank,
                 enable_viewpoint_drift=enable_viewpoint_drift,
                 viewpoint_drift_rate=drift_alpha,
                 **interest_kwargs,
@@ -223,6 +240,7 @@ def run_seed_sweep(
             combined_logs,
             include_viewpoint=drift_active,
             include_agent_id=include_agent_id,
+            include_llm_meta=llm_policy,
         )
 
     write_summary_csv(artefacts.root_dir / "summary.csv", rows)

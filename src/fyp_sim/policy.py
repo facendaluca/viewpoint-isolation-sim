@@ -3,34 +3,48 @@ Policy layer: maps (user, video) -> UserAction.
 
 This encodes behavioural assumptions used by the simulation:
     - Interest is a scalar in [0, 1], derived from either topic_category or any free-form tag.
-    - Sentiment gating applies first: if a video's sentiment is below the user's threshold, the user avoids it regardless of interest (simple harm-avoidance model).
-    - Phenotypes (watcher/sampler/avoider) differ only in thresholds, not in the interest model.
+    - Sentiment gating applies first: if a video's sentiment is below the user's threshold, every phenotype avoids it regardless of interest (simple harm-avoidance model).
+    - Watchers have established taste: they watch clear matches, sample adjacent or uncertain content, and avoid clearly irrelevant content.
+    - Samplers explore broadly: they sample most sentiment-safe content and only fully watch when interest is strong.
+    - Avoiders are selective: they watch clear matches and avoid everything outside their bracket.
 """
 
 from __future__ import annotations
 
 from fyp_sim.models import User, UserAction, UserPhenotype, Video
 
+# A video counts as a "clear match" for watchers and avoiders at or above this score.
+INTEREST_BRACKET_THRESHOLD = 0.5
+# Below this, a watcher treats the video as clearly irrelevant and avoids it.
+WATCHER_SAMPLE_FLOOR = 0.2
+# Samplers only commit to a full watch above this stronger bar.
+SAMPLER_WATCH_THRESHOLD = 0.7
+
 
 def decide_action(user: User, video: Video) -> UserAction:
-    """Decide action based on phenotype, interest, and sentiment gating."""
+    """Decide action based on sentiment gating, interest, and phenotype."""
     interest = interest_score(user, video)
 
-    # Sentiment gating: if content is "too negative", bias away from it
+    # Sentiment gating: if content is "too negative", every phenotype avoids it
     if video.sentiment_score < user.sentiment_threshold:
         return UserAction.AVOID
 
-    # Phenotype-driven thresholds
-    if user.phenotype == UserPhenotype.WATCHER:
-        return UserAction.WATCH if interest >= 0.5 else UserAction.SAMPLE
-    if user.phenotype == UserPhenotype.SAMPLER:
-        if interest >= 0.6:
+    if user.phenotype is UserPhenotype.WATCHER:
+        if interest >= INTEREST_BRACKET_THRESHOLD:
             return UserAction.WATCH
-        if interest >= 0.2:
+        if interest >= WATCHER_SAMPLE_FLOOR:
             return UserAction.SAMPLE
         return UserAction.AVOID
+
+    if user.phenotype is UserPhenotype.SAMPLER:
+        if interest >= SAMPLER_WATCH_THRESHOLD:
+            return UserAction.WATCH
+        return UserAction.SAMPLE
+
     # AVOIDER
-    return UserAction.SAMPLE if interest >= 0.8 else UserAction.AVOID
+    if interest >= INTEREST_BRACKET_THRESHOLD:
+        return UserAction.WATCH
+    return UserAction.AVOID
 
 
 def interest_score(user: User, video: Video) -> float:

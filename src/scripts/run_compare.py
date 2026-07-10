@@ -14,6 +14,7 @@ from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.artefacts import _fail_fast_old_alpha
 from fyp_sim.cli import run_cli
+from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.plotting import make_compare_plot
 from fyp_sim.simulation.engine import run_simulation
@@ -176,6 +177,9 @@ def _run_simulation_compat(
     drift_alpha: float,
     enable_viewpoint_drift: bool,
     decider: Any,
+    engagement_rng: random.Random | None = None,
+    llm_rerank: bool = False,
+    interest_kwargs: dict[str, Any] | None = None,
 ) -> list[Any]:
     """
     Calls run_simulation and returns only the logs.
@@ -193,6 +197,12 @@ def _run_simulation_compat(
     )
     if "decider" in sig.parameters:
         kwargs["decider"] = decider
+    if "engagement_rng" in sig.parameters:
+        kwargs["engagement_rng"] = engagement_rng
+    if "llm_rerank" in sig.parameters:
+        kwargs["llm_rerank"] = llm_rerank
+    if interest_kwargs and "enable_interest_updates" in sig.parameters:
+        kwargs.update(interest_kwargs)
     return run_simulation(**kwargs)
 
 
@@ -210,7 +220,7 @@ def build_llm_decider(cfg: dict[str, Any]) -> Any:
         raise ValueError("policy.llm.model is required to run the LLM baseline")
 
     client = OpenAICompatClient(
-        base_url=str(llm_cfg.get("base_url", "http://localhost:1234/v1")),
+        base_url=str(llm_cfg.get("base_url", "http://100.127.102.30:1234/v1")),
         model=str(model),
         api_key=llm_cfg.get("api_key"),
         temperature=float(llm_cfg.get("temperature", 0.0)),
@@ -257,10 +267,27 @@ def main() -> None:
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
 
+    # Interest/state updates: honoured from config (same keys as run_batch),
+    # so LLM actions can shape future recommendations when enabled.
+    enable_interest_updates = bool(cfg.get("enable_interest_updates", False))
+    interest_kwargs = {
+        "enable_interest_updates": enable_interest_updates,
+        "interest_topic_alpha": float(cfg.get("interest_topic_alpha", 0.10)),
+        "interest_tag_alpha": float(cfg.get("interest_tag_alpha", 0.05)),
+        "interest_decay": float(cfg.get("interest_decay", 0.02)),
+        "interest_normalise": bool(cfg.get("interest_normalise", False)),
+        "interest_prune_below": float(cfg.get("interest_prune_below", 0.001)),
+    }
+
+    # LLM-in-loop: rerank the top_k slate with the LLM (LLM arm only).
+    llm_cfg = (cfg.get("policy") or {}).get("llm") or {}
+    rerank_slate = bool(llm_cfg.get("rerank_slate", False))
+
     print(
         f"[run_compare] config={args.config} "
         f"steps={steps} top_k={top_k} rank_alpha={rank_alpha} drift_alpha={drift_alpha} "
         f"enable_viewpoint_drift={enable_viewpoint_drift} "
+        f"enable_interest_updates={enable_interest_updates} rerank_slate={rerank_slate} "
         f"lock_in_threshold={lock_in_threshold} persistence_window={persistence_window} "
         f"seeds={seeds}"
     )
@@ -271,7 +298,7 @@ def main() -> None:
             f"in {args.config}"
         )
 
-    pool = build_video_pool(cfg)
+    pool = build_corpus(cfg)
 
     cfg_h = config_hash(cfg, n=10)
     run_id = f"compare__{cfg_h}"
@@ -291,6 +318,8 @@ def main() -> None:
             "rank_alpha": rank_alpha,
             "drift_alpha": drift_alpha,
             "enable_viewpoint_drift": enable_viewpoint_drift,
+            "enable_interest_updates": enable_interest_updates,
+            "rerank_slate": rerank_slate,
         },
     )
 
@@ -304,6 +333,10 @@ def main() -> None:
     for agent_name, decider in deciders.items():
         for seed in seeds:
             rng = random.Random(seed)
+            # Separate stream for watch-time draws: otherwise arms that act
+            # differently consume different amounts of shared randomness and
+            # exposure diverges for accidental reasons.
+            engagement_rng = random.Random(f"{seed}:engagement")
             # Fresh user per (agent, seed): drift/interest updates mutate state,
             # so a shared instance would leak state across runs and break fairness.
             user = build_user(cfg)
@@ -317,6 +350,9 @@ def main() -> None:
                 drift_alpha=drift_alpha,
                 enable_viewpoint_drift=enable_viewpoint_drift,
                 decider=decider,
+                engagement_rng=engagement_rng,
+                llm_rerank=(agent_name == "llm" and rerank_slate),
+                interest_kwargs=interest_kwargs,
             )
 
             # Per-run logs (generated artifacts)
