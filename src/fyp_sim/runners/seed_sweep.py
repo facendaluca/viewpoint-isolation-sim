@@ -84,6 +84,7 @@ def run_seed_sweep(
     runner: str | None = None,
     progress_cb: Callable[[int, int, int], None] | None = None,
     force_heuristic: bool = False,
+    runtime_overrides: dict[str, Any] | None = None,
 ) -> Path:
     """Run all seeds (and optionally multiple agents) and write artefacts + logs + summary.
 
@@ -320,6 +321,7 @@ def run_seed_sweep(
     manifest = json.loads(artefacts.manifest_path.read_text(encoding="utf-8"))
     manifest["runtime_s"] = total_runtime_s
     manifest["config_warnings"] = list(config_audit.warnings)
+    manifest["runtime_overrides"] = runtime_overrides or {}
     manifest["llm_diagnostics_path"] = diagnostics_path
     artefacts.manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"

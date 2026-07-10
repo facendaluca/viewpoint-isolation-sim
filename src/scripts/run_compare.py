@@ -24,6 +24,7 @@ from fyp_sim.config_validation import validate_experiment_config
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.plotting import make_compare_plot
+from fyp_sim.runtime_overrides import apply_runtime_overrides
 from fyp_sim.simulation.engine import run_simulation
 
 # -------------------------------
@@ -328,10 +329,15 @@ def main() -> None:
     )
     p.add_argument("--config", type=Path, default=Path("configs/experiment_baseline.json"))
     p.add_argument("--out", type=Path, default=Path("outputs/compare"))
+    p.add_argument("--steps", type=int, default=None, help="Temporary runtime step override.")
+    p.add_argument("--seeds", type=int, nargs="+", default=None, help="Temporary seed list.")
 
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    cfg, runtime_overrides = apply_runtime_overrides(cfg, steps=args.steps, seeds=args.seeds)
+    if runtime_overrides:
+        print(f"[runtime overrides] {json.dumps(runtime_overrides, sort_keys=True)}")
     _fail_fast_old_alpha(cfg, args.config)
     config_audit = validate_experiment_config(cfg, runner="compare", cfg_path=args.config)
     for warning in config_audit.warnings:
@@ -566,6 +572,7 @@ def main() -> None:
             "separate_rng_streams": separate_rng_streams,
             "llm_diagnostics_path": "llm_diagnostics.json",
             "comparison_diagnostics_path": "comparison_diagnostics.json",
+            "runtime_overrides": runtime_overrides,
         }
     )
     write_json(artefacts.manifest_path, manifest)

@@ -19,6 +19,7 @@ from fyp_sim.models import User, UserPhenotype
 from fyp_sim.runners.csv_io import write_run_log_csv, write_summary_csv
 from fyp_sim.runners.seed_sweep import build_decider, make_chooser
 from fyp_sim.runners.seed_sweep_parsing import policy_curiosity, policy_mode
+from fyp_sim.runtime_overrides import apply_runtime_overrides
 from fyp_sim.simulation.engine import choose_video_weighted_top_k, run_simulation
 from fyp_sim.simulation.engine_opt import WeightedTopKChooserOpt
 
@@ -59,10 +60,39 @@ def main() -> None:
         default=Path("outputs/runs"),
         help="Root directory for isolated run artefacts.",
     )
+    p.add_argument("--steps", type=int, default=None, help="Temporary runtime step override.")
+    p.add_argument("--seeds", type=int, nargs="+", default=None, help="Temporary seed list.")
+    p.add_argument("--top-k-grid", type=int, nargs="+", default=None)
+    p.add_argument("--rank-alpha-grid", type=float, nargs="+", default=None)
+    p.add_argument("--policy-mode", choices=["heuristic", "llm"], default=None)
+    p.add_argument("--llm-base-url", default=None)
+    p.add_argument("--llm-model", default=None)
+    p.add_argument("--prompt-id", default=None)
+    p.add_argument(
+        "--llm-rerank-slate", action=argparse.BooleanOptionalAction, default=None
+    )
+    p.add_argument(
+        "--separate-rng-streams", action=argparse.BooleanOptionalAction, default=None
+    )
     args = p.parse_args()
 
     cfg_path = args.config
     cfg = load_config(cfg_path)
+    cfg, runtime_overrides = apply_runtime_overrides(
+        cfg,
+        steps=args.steps,
+        seeds=args.seeds,
+        policy_mode=args.policy_mode,
+        llm_base_url=args.llm_base_url,
+        llm_model=args.llm_model,
+        prompt_id=args.prompt_id,
+        llm_rerank_slate=args.llm_rerank_slate,
+        separate_rng_streams=args.separate_rng_streams,
+        top_k_grid=args.top_k_grid,
+        rank_alpha_grid=args.rank_alpha_grid,
+    )
+    if runtime_overrides:
+        print(f"[runtime overrides] {json.dumps(runtime_overrides, sort_keys=True)}")
     _fail_fast_old_alpha(cfg, cfg_path)
     config_audit = validate_experiment_config(cfg, runner="sweep", cfg_path=cfg_path)
     for warning in config_audit.warnings:
@@ -282,6 +312,7 @@ def main() -> None:
         manifest["per_seed_summary_path"] = "per_seed_summary.csv"
         manifest["llm_diagnostics_path"] = diagnostics_path
         manifest["separate_rng_streams"] = separate_rng_streams
+        manifest["runtime_overrides"] = runtime_overrides
         artefacts.manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
