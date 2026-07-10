@@ -101,3 +101,30 @@ def test_create_run_artefacts_writes_corpus_and_hash(tmp_path: Path) -> None:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     assert manifest["corpus"]["hash"] == expected
+
+
+def test_create_run_artefacts_isolates_same_second_same_config(tmp_path: Path, monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        "fyp_sim.artefacts._utc_now", lambda: datetime(2026, 7, 10, 11, 30, 0, tzinfo=UTC)
+    )
+    cfg = {
+        "steps": 10,
+        "top_k": 3,
+        "rank_alpha": 0.3,
+        "lock_in_threshold": 0.2,
+        "persistence_window": 10,
+    }
+
+    first = create_run_artefacts(
+        cfg=cfg, cfg_path=None, mode="baseline", seeds=[0], outputs_root=tmp_path
+    )
+    second = create_run_artefacts(
+        cfg=cfg, cfg_path=None, mode="baseline", seeds=[0], outputs_root=tmp_path
+    )
+
+    assert first.root_dir != second.root_dir
+    assert second.run_id.endswith("_01")
+    second_manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    assert second_manifest["collision_index"] == 1

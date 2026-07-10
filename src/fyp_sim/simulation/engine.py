@@ -16,7 +16,9 @@ Design goal: keep the engine small and deterministic (given rng seed) so experim
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
@@ -77,6 +79,14 @@ class StepLog:
     topic_interest: float
     interest_keys: int
 
+    # State trace. Existing `interest`/`topic_interest` remain post-update aliases.
+    interest_pre: float = 0.0
+    interest_post: float = 0.0
+    topic_interest_pre: float = 0.0
+    topic_interest_post: float = 0.0
+    interest_state_hash_pre: str = ""
+    interest_state_hash_post: str = ""
+
     # Viewpoint drift logging (pre/post update)
     user_viewpoint_pre: float = 0.0
     user_viewpoint_post: float = 0.0
@@ -89,8 +99,19 @@ class StepLog:
     llm_fallback_reason: str = ""
     llm_action: str = ""
     llm_confidence: float | None = None
+    llm_prompt_tokens: int = 0
+    llm_completion_tokens: int = 0
+    llm_total_tokens: int = 0
+    llm_token_count_estimated: bool = False
 
     agent_id: str = ""
+
+
+def _interest_state_hash(user: User) -> str:
+    payload = json.dumps(
+        user.interest_vector, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def choose_video_max_interest(user: User, pool: list[Video]) -> Video:
@@ -305,6 +326,9 @@ def run_simulation(
                 v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
                 action = decider.decide_next_action(user, v)
                 meta = getattr(decider, "last_meta", None)
+            interest_pre = interest_score(user, v)
+            topic_interest_pre = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_state_hash_pre = _interest_state_hash(user)
             wt = _watch_time(user, v, engagement_rng, action)
 
             if enable_interest_updates and action == UserAction.WATCH:
@@ -324,8 +348,10 @@ def run_simulation(
             vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
             # VII_t is per-step distance, VII_cum tracks the running mean exposure distance over time.
             vii_cum = running_mean(vii_cum, t, vii_t)
-            topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_post = interest_score(user, v)
+            topic_interest_post = float(user.interest_vector.get(v.topic_category, 0.0))
             interest_keys = len(user.interest_vector)
+            interest_state_hash_post = _interest_state_hash(user)
 
             # Optional viewpoint drift update happens after VII_t so baseline VII_t stays comparable.
             if enable_viewpoint_drift and resolved_drift_alpha > 0.0:
@@ -345,6 +371,12 @@ def run_simulation(
             llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
             llm_action = getattr(meta, "llm_action", "") or ""
             llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
+            llm_prompt_tokens = int(getattr(meta, "prompt_tokens", 0)) if meta else 0
+            llm_completion_tokens = int(getattr(meta, "completion_tokens", 0)) if meta else 0
+            llm_total_tokens = int(getattr(meta, "total_tokens", 0)) if meta else 0
+            llm_token_count_estimated = (
+                bool(getattr(meta, "token_count_estimated", False)) if meta else False
+            )
 
             logs.append(
                 StepLog(
@@ -352,7 +384,7 @@ def run_simulation(
                     video_id=v.video_id,
                     action=action.value,
                     watch_time_s=wt,
-                    interest=interest_score(user, v),
+                    interest=interest_post,
                     vii_t=vii_t,
                     vii_cum=vii_cum,
                     policy_mode=policy_mode,
@@ -361,8 +393,18 @@ def run_simulation(
                     llm_fallback_reason=llm_fallback_reason,
                     llm_action=llm_action,
                     llm_confidence=llm_confidence,
-                    topic_interest=topic_interest,
+                    llm_prompt_tokens=llm_prompt_tokens,
+                    llm_completion_tokens=llm_completion_tokens,
+                    llm_total_tokens=llm_total_tokens,
+                    llm_token_count_estimated=llm_token_count_estimated,
+                    topic_interest=topic_interest_post,
                     interest_keys=interest_keys,
+                    interest_pre=interest_pre,
+                    interest_post=interest_post,
+                    topic_interest_pre=topic_interest_pre,
+                    topic_interest_post=topic_interest_post,
+                    interest_state_hash_pre=interest_state_hash_pre,
+                    interest_state_hash_post=interest_state_hash_post,
                     user_viewpoint_pre=user_viewpoint_pre,
                     user_viewpoint_post=user_viewpoint_post,
                     video_viewpoint_score=float(v.viewpoint_score),
@@ -388,7 +430,15 @@ def run_simulation(
             with tracer.phase("simulate_interaction"):
                 action = decider.decide_next_action(user, v)
                 meta = getattr(decider, "last_meta", None)
+                interest_pre = interest_score(user, v)
+                topic_interest_pre = float(user.interest_vector.get(v.topic_category, 0.0))
+                interest_state_hash_pre = _interest_state_hash(user)
                 wt = _watch_time(user, v, engagement_rng, action)
+
+        if llm_rerank:
+            interest_pre = interest_score(user, v)
+            topic_interest_pre = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_state_hash_pre = _interest_state_hash(user)
 
         with tracer.phase("update_state"):
             if enable_interest_updates and action == UserAction.WATCH:
@@ -407,8 +457,10 @@ def run_simulation(
 
             vii_t = viewpoint_distance(user.viewpoint_score, v.viewpoint_score)
             vii_cum = running_mean(vii_cum, t, vii_t)
-            topic_interest = float(user.interest_vector.get(v.topic_category, 0.0))
+            interest_post = interest_score(user, v)
+            topic_interest_post = float(user.interest_vector.get(v.topic_category, 0.0))
             interest_keys = len(user.interest_vector)
+            interest_state_hash_post = _interest_state_hash(user)
 
             if enable_viewpoint_drift and resolved_drift_alpha > 0.0:
                 user.viewpoint_score = apply_viewpoint_drift(
@@ -427,6 +479,12 @@ def run_simulation(
             llm_fallback_reason = getattr(meta, "fallback_reason", "") or ""
             llm_action = getattr(meta, "llm_action", "") or ""
             llm_confidence = getattr(meta, "llm_confidence", None) if meta else None
+            llm_prompt_tokens = int(getattr(meta, "prompt_tokens", 0)) if meta else 0
+            llm_completion_tokens = int(getattr(meta, "completion_tokens", 0)) if meta else 0
+            llm_total_tokens = int(getattr(meta, "total_tokens", 0)) if meta else 0
+            llm_token_count_estimated = (
+                bool(getattr(meta, "token_count_estimated", False)) if meta else False
+            )
 
             logs.append(
                 StepLog(
@@ -434,7 +492,7 @@ def run_simulation(
                     video_id=v.video_id,
                     action=action.value,
                     watch_time_s=wt,
-                    interest=interest_score(user, v),
+                    interest=interest_post,
                     vii_t=vii_t,
                     vii_cum=vii_cum,
                     policy_mode=policy_mode,
@@ -443,8 +501,18 @@ def run_simulation(
                     llm_fallback_reason=llm_fallback_reason,
                     llm_action=llm_action,
                     llm_confidence=llm_confidence,
-                    topic_interest=topic_interest,
+                    llm_prompt_tokens=llm_prompt_tokens,
+                    llm_completion_tokens=llm_completion_tokens,
+                    llm_total_tokens=llm_total_tokens,
+                    llm_token_count_estimated=llm_token_count_estimated,
+                    topic_interest=topic_interest_post,
                     interest_keys=interest_keys,
+                    interest_pre=interest_pre,
+                    interest_post=interest_post,
+                    topic_interest_pre=topic_interest_pre,
+                    topic_interest_post=topic_interest_post,
+                    interest_state_hash_pre=interest_state_hash_pre,
+                    interest_state_hash_post=interest_state_hash_post,
                     user_viewpoint_pre=user_viewpoint_pre,
                     user_viewpoint_post=user_viewpoint_post,
                     video_viewpoint_score=float(v.viewpoint_score),

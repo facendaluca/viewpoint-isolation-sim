@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -22,6 +22,7 @@ class OpenAICompatClient:
     api_key: str | None = None
     temperature: float = 0.0
     max_tokens: int | None = None
+    last_usage: dict[str, int] | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         if not self.base_url:
@@ -29,6 +30,7 @@ class OpenAICompatClient:
         self.base_url = self.base_url.rstrip("/")
 
     def complete(self, prompt: str, *, timeout_s: float) -> str:
+        self.last_usage = None
         url = self.base_url + "/chat/completions"
 
         payload: dict[str, Any] = {
@@ -61,6 +63,16 @@ class OpenAICompatClient:
             parsed = json.loads(raw)
         except json.JSONDecodeError as e:
             raise RuntimeError(f"LLM response was not JSON: {e.msg}") from e
+
+        usage = parsed.get("usage")
+        if isinstance(usage, dict):
+            parsed_usage: dict[str, int] = {}
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                value = usage.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                    parsed_usage[key] = value
+            if parsed_usage:
+                self.last_usage = parsed_usage
 
         try:
             return parsed["choices"][0]["message"]["content"]

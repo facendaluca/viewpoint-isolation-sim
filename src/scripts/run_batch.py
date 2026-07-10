@@ -37,6 +37,12 @@ def main() -> None:
     p.add_argument("config", nargs="?", type=Path, default=Path("configs/experiment_baseline.json"))
     p.add_argument("--legacy", action="store_true", help="Write outputs to legacy locations.")
     p.add_argument(
+        "--out",
+        type=Path,
+        default=Path("outputs/runs"),
+        help="Root directory for isolated run artefacts.",
+    )
+    p.add_argument(
         "--engine",
         choices=["baseline", "opt"],
         default=None,
@@ -52,6 +58,8 @@ def main() -> None:
         cfg["engine"] = str(args.engine)
 
     if args.legacy:
+        if args.out != Path("outputs/runs"):
+            raise ValueError("--out is not supported with --legacy")
         if args.engine == "opt":
             raise ValueError("--engine is not supported with --legacy")
         out_dir, summary_path = run_seed_sweep_legacy(cfg, cfg_path=cfg_path)
@@ -59,7 +67,7 @@ def main() -> None:
         print(f"Wrote summary to: {summary_path}")
         return
 
-    run_dir = run_seed_sweep(cfg, cfg_path=cfg_path, outputs_root=Path("outputs/runs"))
+    run_dir = run_seed_sweep(cfg, cfg_path=cfg_path, outputs_root=args.out)
     print(f"Wrote run artefacts to: {run_dir}")
     print(f"Wrote summary to: {run_dir / 'summary.csv'}")
 

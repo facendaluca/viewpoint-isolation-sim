@@ -126,3 +126,9 @@ def test_run_seed_sweep_llm_mode_writes_llm_metadata(tmp_path: Path, monkeypatch
         assert row["llm_fallback_reason"] == ""
         assert row["llm_action"] == "Sample"
         assert row["llm_confidence"] == "0.5"
+
+    diagnostics = json.loads((run_dir / "llm_diagnostics.json").read_text(encoding="utf-8"))
+    assert diagnostics["llm_expected_call_count"] == 20
+    assert diagnostics["llm_call_count"] == 20
+    assert diagnostics["llm_valid_count"] == 20
+    assert diagnostics["llm_fallback_count"] == 0

@@ -113,9 +113,19 @@ def create_run_artefacts(
     cfg_hash = _cfg_hash(cfg)
     hash8 = cfg_hash[:8]
 
-    run_id = f"{time_hms}Z_{mode}_{hash8}"
+    base_run_id = f"{time_hms}Z_{mode}_{hash8}"
+    date_dir = outputs_root / date_ymd
+    date_dir.mkdir(parents=True, exist_ok=True)
+    collision_index = 0
+    while True:
+        run_id = base_run_id if collision_index == 0 else f"{base_run_id}_{collision_index:02d}"
+        root_dir = date_dir / run_id
+        try:
+            root_dir.mkdir(exist_ok=False)
+            break
+        except FileExistsError:
+            collision_index += 1
 
-    root_dir = outputs_root / date_ymd / run_id
     seeds_dir = root_dir / "seeds"
     plots_dir = root_dir / "plots"
     manifest_path = root_dir / "manifest.json"
@@ -135,7 +145,20 @@ def create_run_artefacts(
         "interest_decay": cfg.get("interest_decay"),
         "interest_normalise": cfg.get("interest_normalise"),
         "interest_prune_below": cfg.get("interest_prune_below"),
+        "enable_viewpoint_drift": cfg.get("enable_viewpoint_drift"),
+        "separate_rng_streams": cfg.get("separate_rng_streams"),
+        "lock_in_threshold": cfg.get("lock_in_threshold"),
+        "persistence_window": cfg.get("persistence_window"),
+        "top_k_grid": cfg.get("top_k_grid"),
+        "rank_alpha_grid": cfg.get("rank_alpha_grid"),
     }
+
+    policy_cfg = cfg.get("policy", {}) or {}
+    llm_cfg = policy_cfg.get("llm", {}) or {}
+    key_params["policy_mode"] = policy_cfg.get("mode", "heuristic")
+    key_params["llm_model"] = llm_cfg.get("model")
+    key_params["llm_prompt_id"] = llm_cfg.get("prompt_id")
+    key_params["llm_rerank_slate"] = llm_cfg.get("rerank_slate")
 
     manifest: dict[str, Any] = {
         "run_id": run_id,
@@ -146,6 +169,7 @@ def create_run_artefacts(
         "cfg_hash": cfg_hash,
         "seeds": seeds,
         "key_params": key_params,
+        "collision_index": collision_index,
     }
 
     if corpus is not None:

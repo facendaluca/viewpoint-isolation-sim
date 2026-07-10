@@ -20,6 +20,10 @@ class DecisionMeta:
     fallback_reason: str = ""
     llm_action: str = ""
     llm_confidence: float | None = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    token_count_estimated: bool = False
 
 
 class ActionDecider(Protocol):
@@ -110,6 +114,71 @@ class LLMDecider:
 
     _warned_no_client: bool = False
     _warned_unreachable: bool = False
+    _calls_total: int = 0
+    _valid_total: int = 0
+    _fallback_total: int = 0
+    _prompt_tokens_total: int = 0
+    _completion_tokens_total: int = 0
+    _total_tokens_total: int = 0
+    _token_estimated_calls: int = 0
+    _fallback_reasons: dict[str, int] = field(default_factory=dict)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        return (len(text) + 3) // 4 if text else 0
+
+    def _resolve_usage(self, prompt: str, raw: str) -> tuple[int, int, int, bool]:
+        usage = getattr(self.client, "last_usage", None)
+        if isinstance(usage, dict):
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            total_tokens = usage.get("total_tokens")
+            if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
+                if not isinstance(total_tokens, int):
+                    total_tokens = prompt_tokens + completion_tokens
+                return prompt_tokens, completion_tokens, total_tokens, False
+
+        prompt_tokens = self._estimate_tokens(prompt)
+        completion_tokens = self._estimate_tokens(raw)
+        return prompt_tokens, completion_tokens, prompt_tokens + completion_tokens, True
+
+    def _record_call(
+        self,
+        *,
+        valid: bool,
+        fallback_reason: str = "",
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
+        token_count_estimated: bool = False,
+    ) -> None:
+        self._calls_total += 1
+        self._valid_total += int(valid)
+        self._prompt_tokens_total += prompt_tokens
+        self._completion_tokens_total += completion_tokens
+        self._total_tokens_total += total_tokens
+        self._token_estimated_calls += int(token_count_estimated)
+        if fallback_reason:
+            self._fallback_total += 1
+            self._fallback_reasons[fallback_reason] = (
+                self._fallback_reasons.get(fallback_reason, 0) + 1
+            )
+
+    def diagnostics_snapshot(self) -> dict[str, int]:
+        return {
+            "llm_call_count": self._calls_total,
+            "llm_valid_count": self._valid_total,
+            "llm_fallback_count": self._fallback_total,
+            "llm_retry_count": 0,
+            "llm_prompt_tokens": self._prompt_tokens_total,
+            "llm_completion_tokens": self._completion_tokens_total,
+            "llm_total_tokens": self._total_tokens_total,
+            "llm_token_estimated_calls": self._token_estimated_calls,
+            "llm_fallback_no_client": self._fallback_reasons.get("no_client", 0),
+            "llm_fallback_timeout": self._fallback_reasons.get("timeout", 0),
+            "llm_fallback_client_error": self._fallback_reasons.get("client_error", 0),
+            "llm_fallback_invalid_output": self._fallback_reasons.get("invalid_output", 0),
+        }
 
     def decide_next_action(self, user: User, video: Video) -> UserAction:
         if self.client is None:
@@ -121,6 +190,7 @@ class LLMDecider:
                 self._warned_no_client = True
 
             # always set meta so each step log has correct info
+            self._record_call(valid=False, fallback_reason="no_client")
             self.last_meta = DecisionMeta(
                 policy_mode="llm",
                 prompt_id=self.prompt_id,
@@ -135,12 +205,23 @@ class LLMDecider:
             raw = self.client.complete(prompt, timeout_s=self.timeout_s)
             self._warned_unreachable = False
         except TimeoutError as e:
+            prompt_tokens = self._estimate_tokens(prompt)
+            self._record_call(
+                valid=False,
+                fallback_reason="timeout",
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens,
+                token_count_estimated=True,
+            )
             # Always record meta data for CSV/analysis
             self.last_meta = DecisionMeta(
                 policy_mode="llm",
                 prompt_id=self.prompt_id,
                 valid=False,
                 fallback_reason="timeout",
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens,
+                token_count_estimated=True,
             )
 
             # Log only once to avoid spamming when server is down
@@ -164,14 +245,26 @@ class LLMDecider:
                 self.prompt_id,
                 type(e).__name__,
             )
+            prompt_tokens = self._estimate_tokens(prompt)
+            self._record_call(
+                valid=False,
+                fallback_reason="client_error",
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens,
+                token_count_estimated=True,
+            )
             self.last_meta = DecisionMeta(
                 policy_mode="llm",
                 prompt_id=self.prompt_id,
                 valid=False,
                 fallback_reason="client_error",
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens,
+                token_count_estimated=True,
             )
             return self.fallback.decide_next_action(user, video)
 
+        prompt_tokens, completion_tokens, total_tokens, estimated = self._resolve_usage(prompt, raw)
         candidate = _extract_first_json_object(raw)
         try:
             decision = parse_decision_json(candidate)
@@ -182,11 +275,23 @@ class LLMDecider:
                 self.prompt_id,
                 str(e).splitlines()[0],
             )
+            self._record_call(
+                valid=False,
+                fallback_reason="invalid_output",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                token_count_estimated=estimated,
+            )
             self.last_meta = DecisionMeta(
                 policy_mode="llm",
                 prompt_id=self.prompt_id,
                 valid=False,
                 fallback_reason="invalid_output",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                token_count_estimated=estimated,
             )
             return self.fallback.decide_next_action(user, video)
         except Exception as e:
@@ -195,11 +300,23 @@ class LLMDecider:
                 self.prompt_id,
                 type(e).__name__,
             )
+            self._record_call(
+                valid=False,
+                fallback_reason="invalid_output",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                token_count_estimated=estimated,
+            )
             self.last_meta = DecisionMeta(
                 policy_mode="llm",
                 prompt_id=self.prompt_id,
                 valid=False,
                 fallback_reason="invalid_output",
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                token_count_estimated=estimated,
             )
             return self.fallback.decide_next_action(user, video)
 
@@ -209,11 +326,54 @@ class LLMDecider:
             decision.action.value,
             decision.confidence,
         )
+        self._record_call(
+            valid=True,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            token_count_estimated=estimated,
+        )
         self.last_meta = DecisionMeta(
             policy_mode="llm",
             prompt_id=self.prompt_id,
             valid=True,
             llm_action=decision.action.value,
             llm_confidence=decision.confidence,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            token_count_estimated=estimated,
         )
         return decision.action
+
+
+_LLM_DIAGNOSTIC_KEYS = (
+    "llm_call_count",
+    "llm_valid_count",
+    "llm_fallback_count",
+    "llm_retry_count",
+    "llm_prompt_tokens",
+    "llm_completion_tokens",
+    "llm_total_tokens",
+    "llm_token_estimated_calls",
+    "llm_fallback_no_client",
+    "llm_fallback_timeout",
+    "llm_fallback_client_error",
+    "llm_fallback_invalid_output",
+)
+
+
+def empty_llm_diagnostics() -> dict[str, int]:
+    return {key: 0 for key in _LLM_DIAGNOSTIC_KEYS}
+
+
+def llm_diagnostics_snapshot(decider: object) -> dict[str, int]:
+    snapshot = getattr(decider, "diagnostics_snapshot", None)
+    if not callable(snapshot):
+        return empty_llm_diagnostics()
+    values = snapshot()
+    return {key: int(values.get(key, 0)) for key in _LLM_DIAGNOSTIC_KEYS}
+
+
+def llm_diagnostics_delta(before: dict[str, int], after: dict[str, int]) -> dict[str, int]:
+    return {key: int(after.get(key, 0)) - int(before.get(key, 0)) for key in _LLM_DIAGNOSTIC_KEYS}

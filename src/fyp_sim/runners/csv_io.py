@@ -33,6 +33,16 @@ def write_run_log_csv(
             "vii_cum",
         ]
 
+        header += [
+            "interest_pre",
+            "interest_post",
+            "topic_interest_pre",
+            "topic_interest_post",
+            "interest_state_hash_pre",
+            "interest_state_hash_post",
+            "interest_keys",
+        ]
+
         if include_agent_id:
             header = ["agent_id", *header]
 
@@ -47,6 +57,10 @@ def write_run_log_csv(
                 "llm_fallback_reason",
                 "llm_action",
                 "llm_confidence",
+                "llm_prompt_tokens",
+                "llm_completion_tokens",
+                "llm_total_tokens",
+                "llm_token_count_estimated",
             ]
         w.writerow(header)
 
@@ -60,6 +74,16 @@ def write_run_log_csv(
                 f"{row.topic_interest:.4f}",
                 f"{row.vii_t:.4f}",
                 f"{row.vii_cum:.4f}",
+            ]
+
+            base += [
+                f"{row.interest_pre:.4f}",
+                f"{row.interest_post:.4f}",
+                f"{row.topic_interest_pre:.4f}",
+                f"{row.topic_interest_post:.4f}",
+                row.interest_state_hash_pre,
+                row.interest_state_hash_post,
+                row.interest_keys,
             ]
 
             if include_agent_id:
@@ -82,6 +106,10 @@ def write_run_log_csv(
                     row.llm_fallback_reason if is_llm else "",
                     row.llm_action if is_llm else "",
                     row.llm_confidence if is_llm and row.llm_confidence is not None else "",
+                    row.llm_prompt_tokens if is_llm else "",
+                    row.llm_completion_tokens if is_llm else "",
+                    row.llm_total_tokens if is_llm else "",
+                    row.llm_token_count_estimated if is_llm else "",
                 ]
             w.writerow(base)
 
