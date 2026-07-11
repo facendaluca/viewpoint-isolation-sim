@@ -20,6 +20,16 @@ _REQUIRED_SUMMARY_COLS = {
 }
 
 
+def nonnegative_yerr(mean: float, std: float) -> list[list[float]]:
+    """Std whiskers for a quantity that cannot be negative.
+
+    VII and watch time are both >= 0 by definition, so the lower whisker is cut
+    off at zero instead of dipping below the axis when std exceeds the mean.
+    """
+    err = float(std) if pd.notna(std) else 0.0
+    return [[min(err, max(float(mean), 0.0))], [err]]
+
+
 def make_compare_plot(
     run_dir: Path, *, out_path: Path | None = None, seed: int | None = None
 ) -> Path:
@@ -112,7 +122,7 @@ def make_compare_plot(
         ax_vii.errorbar(
             i,
             row["mean_vii_mean"],
-            yerr=row["mean_vii_std"] if bool(pd.notna(row["mean_vii_std"])) else 0.0,
+            yerr=nonnegative_yerr(row["mean_vii_mean"], row["mean_vii_std"]),
             fmt="None",
             capsize=4,
         )
@@ -126,7 +136,7 @@ def make_compare_plot(
         ax_wt.errorbar(
             i,
             row["mean_watch_time_mean"],
-            yerr=row["mean_watch_time_std"] if bool(pd.notna(row["mean_watch_time_std"])) else 0.0,
+            yerr=nonnegative_yerr(row["mean_watch_time_mean"], row["mean_watch_time_std"]),
             fmt="None",
             capsize=4,
         )
