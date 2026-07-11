@@ -7,8 +7,17 @@ from typing import Any, Literal
 
 from fyp_sim.llm.prompting import load_prompt_template
 from fyp_sim.models import ConfigValidationError
+from fyp_sim.policy import INTEREST_BRACKET_THRESHOLD, SAMPLER_WATCH_THRESHOLD
 
 RunnerKind = Literal["batch", "compare", "sweep"]
+
+# An initial affinity at or above these values puts a user inside the heuristic
+# Watch region from step 0 (see fyp_sim.policy.decide_action).
+_WATCH_THRESHOLDS = {
+    "watcher": INTEREST_BRACKET_THRESHOLD,
+    "sampler": SAMPLER_WATCH_THRESHOLD,
+    "avoider": INTEREST_BRACKET_THRESHOLD,
+}
 
 _COMMON_KEYS = {
     "scenario",
@@ -117,6 +126,29 @@ def _validate_user(user: Any, path: str, *, agent: bool = False) -> None:
         if not isinstance(key, str) or not key:
             _fail(f"{path}.interest_vector keys must be non-empty strings")
         _bounded(value, f"{path}.interest_vector[{key!r}]", 0.0, 1.0)
+
+
+def _watch_saturation_warning(user_obj: dict[str, Any], path: str) -> str | None:
+    """Flag users who already sit inside the Watch region before any feedback.
+
+    Under exploit-only exposure (no exploration), a top-k ranker can then fill
+    every slate with Watch-eligible videos, so the heuristic arm degenerates to
+    Watch-only behaviour by construction. That is a legitimate experimental
+    condition, but it must be reported as an exploit-only baseline rather than
+    a realistic mixed-behaviour user model (risk-01 audit finding).
+    """
+    phenotype = str(user_obj["phenotype"])
+    threshold = _WATCH_THRESHOLDS[phenotype]
+    top_affinity = max(float(v) for v in user_obj["interest_vector"].values())
+    if top_affinity < threshold:
+        return None
+    return (
+        f"{path} starts inside the heuristic Watch region (max initial affinity "
+        f"{top_affinity:.2f} >= {phenotype} watch threshold {threshold:.2f}) and no exploration "
+        "is active, so exploit-only top-k exposure can serve Watch-eligible videos exclusively; "
+        "report the heuristic arm of this condition as an exploit-only baseline, not a "
+        "mixed-behaviour user model"
+    )
 
 
 def _validate_weights(value: Any, path: str, *, score_range: tuple[float, float] | None = None) -> None:
@@ -296,6 +328,23 @@ def validate_experiment_config(
             _fail("n_agents must equal len(agents)")
     else:
         _validate_user(cfg.get("user"), "user")
+
+    # The heuristic policy decides actions in heuristic mode and in the
+    # heuristic arm of every compare run. Exploration only offsets the
+    # saturation risk where the runner actually applies policy.curiosity,
+    # which run_compare never does.
+    heuristic_decides = mode == "heuristic" or runner == "compare"
+    exploration_active = curiosity > 0.0 and runner != "compare"
+    if heuristic_decides and not exploration_active:
+        users = (
+            [(f"agents[{index}]", agent) for index, agent in enumerate(cfg["agents"])]
+            if "agents" in cfg
+            else [("user", cfg["user"])]
+        )
+        for path, user_obj in users:
+            message = _watch_saturation_warning(user_obj, path)
+            if message:
+                warnings.append(message)
 
     n_videos = _validate_corpus(cfg)
     if runner == "sweep":
