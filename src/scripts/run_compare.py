@@ -19,6 +19,11 @@ from fyp_sim.agents import (
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
+from fyp_sim.candidate_trace import (
+    CandidateTraceCollector,
+    matched_policy_diagnostics,
+    write_candidate_trace_csv,
+)
 from fyp_sim.cli import run_cli
 from fyp_sim.config_validation import validate_experiment_config
 from fyp_sim.corpus import build_corpus
@@ -211,6 +216,15 @@ def _fmt_float(x: float | None) -> str:
 
 
 def compare_seed_logs(heuristic_logs: list[Any], llm_logs: list[Any]) -> dict[str, int | float]:
+    """Unpaired architecture-level comparison of the two closed-loop arms.
+
+    Rows are zipped by timestep, but reranking and feedback make each arm choose
+    different videos and mutate different user states, so almost no pair shares a
+    pre-action context. `unpaired_action_difference_rate` therefore measures how far
+    the two closed-loop trajectories diverge, NOT how often the two policies disagree
+    on the same decision. The paired policy comparison lives in the candidate-level
+    matched trace (matched_policy_diagnostics.json).
+    """
     paired = list(zip(heuristic_logs, llm_logs, strict=False))
     aligned_steps = len(paired)
     action_difference_steps = sum(h.action != llm.action for h, llm in paired)
@@ -233,8 +247,10 @@ def compare_seed_logs(heuristic_logs: list[Any], llm_logs: list[Any]) -> dict[st
     )
     return {
         "aligned_steps": aligned_steps,
-        "action_difference_steps": action_difference_steps,
-        "action_difference_rate": action_difference_steps / aligned_steps if aligned_steps else 0.0,
+        "unpaired_action_difference_steps": action_difference_steps,
+        "unpaired_action_difference_rate": (
+            action_difference_steps / aligned_steps if aligned_steps else 0.0
+        ),
         "same_video_steps": same_video_steps,
         "same_video_rate": same_video_steps / aligned_steps if aligned_steps else 0.0,
         "same_video_action_difference_steps": same_video_action_difference_steps,
@@ -257,6 +273,7 @@ def _run_simulation_compat(
     engagement_rng: random.Random | None = None,
     llm_rerank: bool = False,
     interest_kwargs: dict[str, Any] | None = None,
+    candidate_trace: Any | None = None,
 ) -> list[Any]:
     """
     Calls run_simulation and returns only the logs.
@@ -280,6 +297,8 @@ def _run_simulation_compat(
         kwargs["llm_rerank"] = llm_rerank
     if interest_kwargs and "enable_interest_updates" in sig.parameters:
         kwargs.update(interest_kwargs)
+    if "candidate_trace" in sig.parameters:
+        kwargs["candidate_trace"] = candidate_trace
     return run_simulation(**kwargs)
 
 
@@ -331,6 +350,15 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=Path("outputs/compare"))
     p.add_argument("--steps", type=int, default=None, help="Temporary runtime step override.")
     p.add_argument("--seeds", type=int, nargs="+", default=None, help="Temporary seed list.")
+    p.add_argument(
+        "--candidate-trace",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Record the candidate-level matched-context trace during LLM rerank "
+            "(passive; adds zero LLM calls and changes no results)."
+        ),
+    )
 
     args = p.parse_args()
 
@@ -368,12 +396,16 @@ def main() -> None:
     # LLM-in-loop: rerank the top_k slate with the LLM (LLM arm only).
     llm_cfg = (cfg.get("policy") or {}).get("llm") or {}
     rerank_slate = bool(llm_cfg.get("rerank_slate", False))
+    # The matched-context trace only exists on the rerank path (that is where the
+    # per-candidate LLM calls happen), so it is silently off otherwise.
+    candidate_trace_enabled = bool(args.candidate_trace) and rerank_slate
 
     print(
         f"[run_compare] config={args.config} "
         f"steps={steps} top_k={top_k} rank_alpha={rank_alpha} drift_alpha={drift_alpha} "
         f"enable_viewpoint_drift={enable_viewpoint_drift} "
         f"enable_interest_updates={enable_interest_updates} rerank_slate={rerank_slate} "
+        f"candidate_trace={candidate_trace_enabled} "
         f"separate_rng_streams={separate_rng_streams} "
         f"lock_in_threshold={lock_in_threshold} persistence_window={persistence_window} "
         f"seeds={seeds}"
@@ -407,6 +439,8 @@ def main() -> None:
 
     rows: list[dict[str, Any]] = []
     logs_by_agent: dict[str, dict[int, list[Any]]] = {"heuristic": {}, "llm": {}}
+    trace_rows_by_seed: dict[int, list[Any]] = {}
+    llm_calls_by_seed: dict[int, int] = {}
     run_started = time.perf_counter()
 
     for agent_name, decider in deciders.items():
@@ -421,6 +455,11 @@ def main() -> None:
             # Fresh user per (agent, seed): drift/interest updates mutate state,
             # so a shared instance would leak state across runs and break fairness.
             user = build_user(cfg)
+            collector = (
+                CandidateTraceCollector(seed=seed)
+                if candidate_trace_enabled and agent_name == "llm"
+                else None
+            )
             diagnostics_before = llm_diagnostics_snapshot(decider)
             seed_started = time.perf_counter()
             logs = _run_simulation_compat(
@@ -436,12 +475,21 @@ def main() -> None:
                 engagement_rng=engagement_rng,
                 llm_rerank=(agent_name == "llm" and rerank_slate),
                 interest_kwargs=interest_kwargs,
+                candidate_trace=collector,
             )
             seed_runtime_s = time.perf_counter() - seed_started
             diagnostics = llm_diagnostics_delta(
                 diagnostics_before, llm_diagnostics_snapshot(decider)
             )
             logs_by_agent[agent_name][seed] = logs
+            if agent_name == "llm":
+                llm_calls_by_seed[seed] = int(diagnostics["llm_call_count"])
+            if collector is not None:
+                write_candidate_trace_csv(
+                    run_dir / "candidate_trace" / f"candidate_trace_seed_{seed}.csv",
+                    collector.rows,
+                )
+                trace_rows_by_seed[seed] = collector.rows
 
             # Per-run logs (generated artifacts)
             log_path = run_dir / "logs" / agent_name / f"run_seed_{seed}.csv"
@@ -538,7 +586,7 @@ def main() -> None:
         )
     aggregate_count_keys = [
         "aligned_steps",
-        "action_difference_steps",
+        "unpaired_action_difference_steps",
         "same_video_steps",
         "same_video_action_difference_steps",
         "same_context_steps",
@@ -548,16 +596,33 @@ def main() -> None:
         key: sum(int(row[key]) for row in per_seed_comparison) for key in aggregate_count_keys
     }
     aligned_steps = aggregate["aligned_steps"]
-    aggregate["action_difference_rate"] = (
-        aggregate["action_difference_steps"] / aligned_steps if aligned_steps else 0.0
+    aggregate["unpaired_action_difference_rate"] = (
+        aggregate["unpaired_action_difference_steps"] / aligned_steps if aligned_steps else 0.0
     )
     aggregate["same_video_rate"] = (
         aggregate["same_video_steps"] / aligned_steps if aligned_steps else 0.0
     )
     write_json(
         run_dir / "comparison_diagnostics.json",
-        {"per_seed": per_seed_comparison, "aggregate": aggregate},
+        {
+            "comparison_type": "unpaired_architecture_divergence",
+            "note": (
+                "Arms are zipped by timestep across independently evolving closed-loop "
+                "trajectories, so rows are not matched contexts. "
+                "unpaired_action_difference_rate is architecture-level trajectory "
+                "divergence, not a matched policy disagreement rate; the paired "
+                "comparison lives in matched_policy_diagnostics.json."
+            ),
+            "per_seed": per_seed_comparison,
+            "aggregate": aggregate,
+        },
     )
+
+    if candidate_trace_enabled:
+        write_json(
+            run_dir / "matched_policy_diagnostics.json",
+            matched_policy_diagnostics(trace_rows_by_seed, llm_calls_by_seed),
+        )
 
     total_runtime_s = time.perf_counter() - run_started
     manifest = json.loads(artefacts.manifest_path.read_text(encoding="utf-8"))
@@ -570,11 +635,15 @@ def main() -> None:
             "enable_interest_updates": enable_interest_updates,
             "rerank_slate": rerank_slate,
             "separate_rng_streams": separate_rng_streams,
+            "candidate_trace_enabled": candidate_trace_enabled,
             "llm_diagnostics_path": "llm_diagnostics.json",
             "comparison_diagnostics_path": "comparison_diagnostics.json",
             "runtime_overrides": runtime_overrides,
         }
     )
+    if candidate_trace_enabled:
+        manifest["matched_policy_diagnostics_path"] = "matched_policy_diagnostics.json"
+        manifest["candidate_trace_dir"] = "candidate_trace"
     write_json(artefacts.manifest_path, manifest)
 
     print(f"Wrote compare run to: {run_dir}")

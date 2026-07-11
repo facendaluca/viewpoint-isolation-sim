@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from fyp_sim.agents import ActionDecider, HeuristicDecider
+from fyp_sim.candidate_trace import CandidateRecord, CandidateTraceCollector
 from fyp_sim.engagement import watch_time_seconds
 from fyp_sim.interests import update_interest_vector
 from fyp_sim.metrics import running_mean, viewpoint_distance
@@ -163,6 +164,8 @@ def select_video_llm_slate(
     top_k: int,
     rank_alpha: float,
     decider: ActionDecider,
+    trace: CandidateTraceCollector | None = None,
+    trace_t: int | None = None,
 ):
     """LLM-in-loop selection: heuristic ranking preselects the top_k slate, then the
     decider's action for each candidate replaces the heuristic engagement proxy.
@@ -172,6 +175,12 @@ def select_video_llm_slate(
     influences exposure. The decider is only asked about the slate, never the full
     corpus, which keeps LLM cost bounded. If the decider falls back to the heuristic
     for a candidate, that candidate's score matches the plain heuristic score.
+
+    When `trace` is given, every decider call is also recorded together with the
+    heuristic shadow action computed on the same frozen pre-update (user, video)
+    context. Recording is passive: it adds no LLM calls, consumes no randomness,
+    and never mutates user, pool, or decider state, so results are identical with
+    tracing on or off.
 
     Returns (video, action, meta) so the caller can reuse the chosen candidate's
     decision instead of asking the decider a second time.
@@ -184,21 +193,61 @@ def select_video_llm_slate(
     # Cheap first pass: identical ranking to choose_video_weighted_top_k.
     scored = [(video_score(user, v, rank_alpha=rank_alpha, max_duration=max_d), v) for v in pool]
     scored.sort(key=lambda x: (-x[0], x[1].video_id))
-    slate = [v for _, v in scored[: min(top_k, len(scored))]]
+    slate_scored = scored[: min(top_k, len(scored))]
+
+    trace_records: list[CandidateRecord] | None = None
+    if trace is not None:
+        step_t = trace.next_t(trace_t)
+        state_hash_pre = _interest_state_hash(user)
+        viewpoint_pre = float(user.viewpoint_score)
+        trace_records = []
 
     # Second pass: rescore the slate with the decider's own action.
     rescored = []
-    for v in slate:
+    for slate_rank, (heuristic_score, v) in enumerate(slate_scored, start=1):
         action = decider.decide_next_action(user, v)
         meta = getattr(decider, "last_meta", None)
         e = engagement_proxy(action, v, max_duration=max_d)
         i = interest_score(user, v)
-        rescored.append(((1.0 - rank_alpha) * i + rank_alpha * e, v, action, meta))
+        final_score = (1.0 - rank_alpha) * i + rank_alpha * e
+        rescored.append((final_score, v, action, meta))
+        if trace_records is not None:
+            trace_records.append(
+                CandidateRecord(
+                    seed=trace.seed,
+                    t=step_t,
+                    slate_rank=slate_rank,
+                    video_id=v.video_id,
+                    selected=False,
+                    interest_state_hash_pre=state_hash_pre,
+                    user_viewpoint_pre=viewpoint_pre,
+                    topic=str(v.topic_category),
+                    tags="|".join(v.tags),
+                    video_viewpoint=float(v.viewpoint_score),
+                    video_sentiment=float(v.sentiment_score),
+                    duration_s=int(v.duration_s),
+                    interest=i,
+                    heuristic_action=decide_action(user, v).value,
+                    llm_action=action.value,
+                    llm_action_raw=str(getattr(meta, "llm_action", "") or ""),
+                    llm_valid=bool(getattr(meta, "valid", True)) if meta else True,
+                    llm_fallback_reason=str(getattr(meta, "fallback_reason", "") or ""),
+                    llm_confidence=getattr(meta, "llm_confidence", None) if meta else None,
+                    heuristic_score=heuristic_score,
+                    llm_engagement=e,
+                    rerank_score=final_score,
+                )
+            )
 
     rescored.sort(key=lambda x: (-x[0], x[1].video_id))
     weights = [max(s, 0.0) + 1e-9 for s, _, _, _ in rescored]
     idx = rng.choices(range(len(rescored)), weights=weights, k=1)[0]
     _, video, action, meta = rescored[idx]
+    if trace_records is not None:
+        for record in trace_records:
+            if record.video_id == video.video_id:
+                record.selected = True
+        trace.record_step(trace_records)
     return video, action, meta
 
 
@@ -264,6 +313,9 @@ def run_simulation(
     enable_viewpoint_drift: bool = False,
     viewpoint_drift_rate: float = 0.0,
     phase_tracer: PhaseTracer | None = None,
+    # Optional matched-context recorder for the llm_rerank path; passive, so
+    # passing None or a collector yields byte-identical simulations.
+    candidate_trace: CandidateTraceCollector | None = None,
 ) -> list[StepLog]:
     """Run a minimal simulation loop and return per-step logs."""
     if alpha is not None:
@@ -320,7 +372,14 @@ def run_simulation(
             # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
             if llm_rerank:
                 v, action, meta = select_video_llm_slate(
-                    user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha, decider=decider
+                    user,
+                    video_pool,
+                    rng,
+                    top_k=top_k,
+                    rank_alpha=rank_alpha,
+                    decider=decider,
+                    trace=candidate_trace,
+                    trace_t=t,
                 )
             else:
                 v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
@@ -419,7 +478,14 @@ def run_simulation(
         if llm_rerank:
             with tracer.phase("generate_feed"):
                 v, action, meta = select_video_llm_slate(
-                    user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha, decider=decider
+                    user,
+                    video_pool,
+                    rng,
+                    top_k=top_k,
+                    rank_alpha=rank_alpha,
+                    decider=decider,
+                    trace=candidate_trace,
+                    trace_t=t,
                 )
             with tracer.phase("simulate_interaction"):
                 wt = _watch_time(user, v, engagement_rng, action)
