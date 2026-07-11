@@ -30,6 +30,10 @@ def compute_lock_in_metrics(
     - lock_in_events: number of such runs
     - time_to_first_lock_in: first timestep where the first run reaches the window (end index)
     - total_lock_in_steps: sum of run lengths for runs that meet the window
+
+    The input series is unweighted served-exposure distance: VII_t exists for every
+    served item whether the user Watched, Sampled, or Avoided it. Lock-in is therefore
+    a served-exposure-composition measure, not completed consumption or attitude change.
     """
     if persistence_window <= 0:
         raise ValueError("persistence_window must be > 0")
