@@ -1,7 +1,7 @@
 import pytest
 
 from fyp_sim.models import User, UserAction, UserPhenotype, Video
-from fyp_sim.policy import decide_action
+from fyp_sim.policy import decide_action, predicted_action
 
 ALL_PHENOTYPES = [UserPhenotype.WATCHER, UserPhenotype.SAMPLER, UserPhenotype.AVOIDER]
 
@@ -30,12 +30,51 @@ def test_everyone_watches_high_topic_interest(phenotype: UserPhenotype):
     assert decide_action(u, v) == UserAction.WATCH
 
 
-@pytest.mark.parametrize("phenotype", ALL_PHENOTYPES)
+@pytest.mark.parametrize("phenotype", [UserPhenotype.SAMPLER, UserPhenotype.AVOIDER])
 def test_tag_interest_counts_like_topic_interest(phenotype: UserPhenotype):
-    # Interest can come from a tag, not just the topic category
+    # For samplers and avoiders, interest can come from a tag, not just the topic
     u = _make_user(phenotype, {"politics": 0.1, "meme": 0.9})
     v = Video(3, "politics", 0.6, 0.0, 30, tags=("meme",))
     assert decide_action(u, v) == UserAction.WATCH
+
+
+def test_watcher_refuses_tag_hooked_video_outside_taste():
+    # A watcher's established taste is anchored on topics: a hooky tag on an
+    # off-taste topic does not earn a watch, it gets refused.
+    u = _make_user(UserPhenotype.WATCHER, {"politics": 0.1, "meme": 0.9})
+    v = Video(3, "politics", 0.6, 0.0, 30, tags=("meme",))
+    assert decide_action(u, v) == UserAction.AVOID
+
+
+def test_watcher_refusal_is_hidden_from_the_platform_model():
+    # The ranker's predicted_action still sees the tag hook as a Watch, which is
+    # exactly why the platform can serve videos the watcher then refuses.
+    u = _make_user(UserPhenotype.WATCHER, {"politics": 0.1, "meme": 0.9})
+    v = Video(3, "politics", 0.6, 0.0, 30, tags=("meme",))
+    assert predicted_action(u, v) == UserAction.WATCH
+    assert decide_action(u, v) == UserAction.AVOID
+
+
+@pytest.mark.parametrize(
+    ("topic_affinity", "expected"),
+    [
+        (0.50, UserAction.WATCH),  # clear match inside taste
+        (0.20, UserAction.WATCH),  # slight interest still earns a watch
+        (0.19, UserAction.AVOID),  # topic outside the established taste
+    ],
+)
+def test_watcher_taste_floor(topic_affinity: float, expected: UserAction):
+    u = _make_user(UserPhenotype.WATCHER, {"politics": topic_affinity})
+    v = Video(4, "politics", 0.6, 0.0, 30)
+    assert decide_action(u, v) == expected
+
+
+def test_watcher_never_samples():
+    # Watchers commit or refuse; sampling is the sampler's behaviour.
+    for affinity in (0.0, 0.19, 0.20, 0.49, 0.50, 1.0):
+        u = _make_user(UserPhenotype.WATCHER, {"politics": affinity})
+        v = Video(4, "politics", 0.6, 0.0, 30)
+        assert decide_action(u, v) in {UserAction.WATCH, UserAction.AVOID}
 
 
 @pytest.mark.parametrize(
@@ -46,10 +85,27 @@ def test_tag_interest_counts_like_topic_interest(phenotype: UserPhenotype):
         (0.19, UserAction.AVOID),  # clearly irrelevant
     ],
 )
-def test_watcher_thresholds(interest: float, expected: UserAction):
+def test_predicted_watcher_brackets(interest: float, expected: UserAction):
+    # The platform's engagement model keeps the original interest brackets.
     u = _make_user(UserPhenotype.WATCHER, {"politics": interest})
     v = Video(4, "politics", 0.6, 0.0, 30)
-    assert decide_action(u, v) == expected
+    assert predicted_action(u, v) == expected
+
+
+@pytest.mark.parametrize("phenotype", [UserPhenotype.SAMPLER, UserPhenotype.AVOIDER])
+@pytest.mark.parametrize("interest", [0.0, 0.19, 0.20, 0.49, 0.50, 0.69, 0.70, 1.0])
+def test_predicted_matches_realised_for_samplers_and_avoiders(
+    phenotype: UserPhenotype, interest: float
+):
+    u = _make_user(phenotype, {"politics": interest})
+    v = Video(4, "politics", 0.6, 0.0, 30)
+    assert predicted_action(u, v) == decide_action(u, v)
+
+
+def test_predicted_action_respects_sentiment_gate():
+    u = _make_user(UserPhenotype.WATCHER, {"politics": 1.0})
+    v = Video(1, "politics", 0.6, -0.9, 30)
+    assert predicted_action(u, v) == UserAction.AVOID
 
 
 @pytest.mark.parametrize(

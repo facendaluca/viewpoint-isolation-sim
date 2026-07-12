@@ -1,22 +1,34 @@
 """Risk-01 audit tool tests.
 
-Covers the two properties the audit must guarantee:
+Covers the properties the audit must guarantee:
 1. Observational transparency: auditing a run changes nothing about it.
 2. Honest localisation: the collapse-stage classifier reports where non-Watch
    opportunity disappears, for saturated, slate-collapsed and healthy fixtures.
+3. Predicted-versus-realised evidence: pool, slate and served counts, the
+   confusion matrix and the refusal rate all reconcile, and the frozen E3
+   corpus reproduces the established deterministic t=0 counts.
+4. Config handling: heuristic configs like E3 are validated as batch configs,
+   compare configs keep the compare contract.
 """
 
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
+from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.simulation.engine import choose_video_weighted_top_k, run_simulation
 from src.scripts.audit_action_opportunity import (
     OpportunityAuditor,
     classify_collapse_stage,
+    detect_runner_kind,
+    replay_heuristic_arm,
     summarise_seed,
 )
+from src.scripts.run_compare import load_config
+
+E3_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "eval" / "E3_explore_low.json"
 
 
 def _sampler_user() -> User:
@@ -128,9 +140,9 @@ def test_audit_reports_no_collapse_when_served_actions_mix():
     # One Watch-eligible video and four Sample videos, all on the slate:
     # weighted selection keeps serving a mixture of actions.
     user = User(
-        phenotype=UserPhenotype.WATCHER,
+        phenotype=UserPhenotype.SAMPLER,
         viewpoint_score=0.5,
-        interest_vector={"sports": 0.6, "music": 0.3},
+        interest_vector={"sports": 0.75, "music": 0.3},
         sentiment_threshold=-0.2,
     )
     pool = [Video(1, "sports", 0.5, 0.0, 30)] + [
@@ -146,12 +158,12 @@ def test_audit_reports_no_collapse_when_served_actions_mix():
 
 def test_audit_detects_first_feedback_driven_opportunity_change():
     # Watching the sports video bumps the shared 'gym' tag hard enough that the
-    # second video crosses out of the Avoid region, so the pool mix changes at
+    # second video crosses the sampler's watch bar, so the pool mix changes at
     # the very next step. The full-duration watch_time_fn makes it exact.
     user = User(
-        phenotype=UserPhenotype.WATCHER,
+        phenotype=UserPhenotype.SAMPLER,
         viewpoint_score=0.5,
-        interest_vector={"sports": 0.55, "gym": 0.18},
+        interest_vector={"sports": 0.75, "gym": 0.18},
         sentiment_threshold=-0.2,
     )
     pool = [
@@ -176,7 +188,8 @@ def test_audit_detects_first_feedback_driven_opportunity_change():
 
     summary = summarise_seed(auditor.step_rows, logs)
     assert auditor.step_rows[0]["pool_watch"] == 1
-    assert auditor.step_rows[0]["pool_avoid"] == 2
+    assert auditor.step_rows[0]["pool_sample"] == 1
+    assert auditor.step_rows[0]["pool_avoid"] == 1
     assert auditor.step_rows[0]["pool_sentiment_gated"] == 1
     assert auditor.step_rows[1]["pool_watch"] == 2
     assert summary["first_pool_mix_change_step"] == 1
@@ -184,3 +197,96 @@ def test_audit_detects_first_feedback_driven_opportunity_change():
 
 def test_classifier_handles_empty_rows():
     assert classify_collapse_stage([]) == "no_steps"
+
+
+def test_detect_runner_kind_reads_the_policy_block():
+    assert detect_runner_kind({}) == "batch"
+    assert detect_runner_kind({"policy": {"mode": "heuristic", "curiosity": 0.0}}) == "batch"
+    assert detect_runner_kind({"policy": {"mode": "llm", "llm": {"model": "m"}}}) == "compare"
+    # A dormant LLM block still marks a compare-style config.
+    assert detect_runner_kind({"policy": {"mode": "heuristic", "llm": {"model": "m"}}}) == "compare"
+
+
+def test_e3_direct_audit_reproduces_the_frozen_t0_counts():
+    # The established risk-01 evidence, derived here from the frozen E3 corpus
+    # (corpus.seed 260303) and the current policy, never from constants inside
+    # the audit tool itself.
+    cfg = load_config(E3_CONFIG_PATH)
+    assert detect_runner_kind(cfg) == "batch"
+
+    pool = build_corpus(cfg)
+    auditor = OpportunityAuditor(seed=0)
+    logs, _, _, _ = replay_heuristic_arm(cfg, pool, seed=0, steps=1, chooser=auditor.chooser)
+
+    row = auditor.step_rows[0]
+    predicted = (row["pool_predicted_watch"], row["pool_predicted_sample"], row["pool_predicted_avoid"])
+    realised = (row["pool_watch"], row["pool_sample"], row["pool_avoid"])
+    assert predicted == (461, 259, 280)
+    assert realised == (530, 0, 470)
+    assert row["pool_pred_watch_real_avoid"] == 121
+
+    summary = summarise_seed(auditor.step_rows, logs)
+    pool_t0 = summary["predicted_vs_realised"]["pool_t0"]
+    assert pool_t0["total"] == 1000
+    assert pool_t0["predicted"] == {"watch": 461, "sample": 259, "avoid": 280}
+    assert pool_t0["realised"] == {"watch": 530, "sample": 0, "avoid": 470}
+    assert pool_t0["refusals_predicted_watch_realised_avoid"] == 121
+    assert pool_t0["refusal_rate"]["numerator"] == 121
+    assert pool_t0["refusal_rate"]["denominator"] == 461
+    assert pool_t0["refusal_rate"]["denominator_is"] == "pool_t0_predicted_watch"
+    assert all(summary["reconciliation"].values())
+
+
+def test_predicted_vs_realised_evidence_reconciles_for_a_hooked_watcher():
+    # Watcher with an in-taste topic and a hooky off-topic tag: the platform
+    # predicts Watch for both sentiment-safe videos, but the watcher refuses
+    # the off-topic one, so every stage shows a predicted/realised split.
+    user = User(
+        phenotype=UserPhenotype.WATCHER,
+        viewpoint_score=0.5,
+        interest_vector={"sports": 0.9, "meme": 0.9},
+        sentiment_threshold=-0.2,
+    )
+    pool = [
+        Video(1, "sports", 0.5, 0.0, 30),
+        Video(2, "misc", 0.5, 0.0, 30, tags=("meme",)),
+        Video(3, "misc", 0.5, -0.9, 30),
+    ]
+    auditor = OpportunityAuditor(seed=5)
+    logs, _, _ = _run(user, pool, chooser=auditor.chooser, seed=5, steps=8, top_k=2)
+
+    row = auditor.step_rows[0]
+    assert (row["pool_predicted_watch"], row["pool_predicted_sample"], row["pool_predicted_avoid"]) == (2, 0, 1)
+    assert (row["pool_watch"], row["pool_sample"], row["pool_avoid"]) == (1, 0, 2)
+    assert row["pool_pred_watch_real_avoid"] == 1
+    assert row["pool_pred_real_mismatches"] == 1
+    assert row["served_predicted_action"] == "Watch"
+
+    summary = summarise_seed(auditor.step_rows, logs)
+    pv = summary["predicted_vs_realised"]
+
+    assert pv["pool_t0"]["confusion_predicted_to_realised"]["watch"] == {
+        "watch": 1,
+        "sample": 0,
+        "avoid": 1,
+    }
+    assert pv["pool_t0"]["mismatches"] == 1
+
+    # Both predicted-Watch videos fill the two slate slots, so every served
+    # video is predicted Watch and refusals are exactly the realised Avoid serves.
+    served = pv["served"]
+    logged = summary["logged_action_counts"]
+    assert served["steps"] == 8
+    assert served["predicted"] == {"watch": 8, "sample": 0, "avoid": 0}
+    assert served["realised"]["watch"] == logged.get("Watch", 0)
+    assert served["realised"]["avoid"] == logged.get("Avoid", 0)
+    assert served["refusals_predicted_watch_realised_avoid"] == served["realised"]["avoid"]
+    assert served["refusal_rate"]["denominator"] == 8
+    assert served["refusal_rate"]["denominator_is"] == "served_predicted_watch"
+
+    slate = pv["slate"]
+    assert slate["slots"] == 16
+    assert slate["predicted"] == {"watch": 16, "sample": 0, "avoid": 0}
+    assert slate["realised"] == {"watch": 8, "sample": 0, "avoid": 8}
+
+    assert all(summary["reconciliation"].values())

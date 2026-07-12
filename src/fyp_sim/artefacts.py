@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fyp_sim.models import Video
+from fyp_sim.policy import POLICY_CONTRACT
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,51 @@ def _cfg_hash(cfg: dict[str, Any]) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _git_provenance(anchor: Path) -> tuple[str | None, bool | None]:
+    """Best-effort (commit, dirty) of the git worktree containing `anchor`.
+
+    Returns (None, None) when git is missing, times out, or the path is not
+    inside a repository, so callers never fail on provenance collection.
+    """
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(anchor), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if head.returncode != 0 or not head.stdout.strip():
+            return None, None
+        status = subprocess.run(
+            ["git", "-C", str(anchor), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
+        return head.stdout.strip(), dirty
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+
+
+def runtime_provenance() -> dict[str, Any]:
+    """Concise record of which source code produced an artefact.
+
+    cfg_hash cannot separate runs whose configs are identical but whose policy
+    semantics differ (the risk-01 watcher change), so manifests also record the
+    source commit, whether the worktree had uncommitted changes, and the policy
+    contract version. Output naming must never depend on these fields.
+    """
+    commit, dirty = _git_provenance(Path(__file__).resolve().parent)
+    return {
+        "git_commit": commit,
+        "git_dirty": dirty,
+        "policy_contract": POLICY_CONTRACT,
+    }
 
 
 def _corpus_payload(videos: list[Video]) -> list[dict[str, Any]]:
@@ -170,6 +217,7 @@ def create_run_artefacts(
         "seeds": seeds,
         "key_params": key_params,
         "collision_index": collision_index,
+        "provenance": runtime_provenance(),
     }
 
     if corpus is not None:

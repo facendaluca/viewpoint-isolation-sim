@@ -34,7 +34,11 @@ def _interest_score_once(user: User, v: Video) -> float:
 def _decide_action_from_interest(
     *, phenotype: UserPhenotype, sentiment_threshold: float, video_sentiment: float, interest: float
 ) -> UserAction:
-    """Semantics-equivalent to policy.decide_action, but uses precomputed interest."""
+    """Semantics-equivalent to policy.predicted_action, but uses precomputed interest.
+
+    Only ranking uses this, so it mirrors the platform's engagement estimate,
+    not the user's realised decide_action.
+    """
     if video_sentiment < sentiment_threshold:
         return UserAction.AVOID
 

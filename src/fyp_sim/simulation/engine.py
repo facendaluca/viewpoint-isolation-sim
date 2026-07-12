@@ -29,7 +29,7 @@ from fyp_sim.engagement import watch_time_seconds
 from fyp_sim.interests import update_interest_vector
 from fyp_sim.metrics import running_mean, viewpoint_distance
 from fyp_sim.models import User, UserAction, Video
-from fyp_sim.policy import decide_action, interest_score
+from fyp_sim.policy import decide_action, interest_score, predicted_action
 from fyp_sim.simulation.viewpoint_drift import apply_viewpoint_drift
 
 
@@ -60,8 +60,12 @@ def video_score(user: User, v: Video, *, rank_alpha: float, max_duration: int) -
 
     rank_alpha = 0.0 -> interest only
     rank_alpha = 1.0 -> engagement proxy only
+
+    The proxy comes from policy.predicted_action, the platform's own engagement
+    estimate, not from the user's realised decide_action. A watcher can
+    therefore be served a video it will refuse.
     """
-    a = decide_action(user, v)
+    a = predicted_action(user, v)
     e = engagement_proxy(a, v, max_duration=max_duration)
     i = interest_score(user, v)
     return (1.0 - rank_alpha) * i + rank_alpha * e

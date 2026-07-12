@@ -6,7 +6,7 @@ import pytest
 
 from fyp_sim.analysis import summarise_logs
 from fyp_sim.models import User, UserPhenotype, Video
-from fyp_sim.policy import decide_action, interest_score
+from fyp_sim.policy import interest_score, predicted_action
 from fyp_sim.simulation.engine import run_simulation as run_simulation_baseline
 from fyp_sim.simulation.engine_opt import _decide_action_from_interest, run_simulation_opt
 
@@ -98,17 +98,18 @@ def _make_user(phenotype: UserPhenotype) -> User:
 @pytest.mark.parametrize(
     "phenotype", [UserPhenotype.WATCHER, UserPhenotype.SAMPLER, UserPhenotype.AVOIDER]
 )
-def test_decide_action_matches_opt_wrapper_on_randomised_videos(phenotype: UserPhenotype) -> None:
+def test_predicted_action_matches_opt_wrapper_on_randomised_videos(phenotype: UserPhenotype) -> None:
     """
     - uses policy.interest_score (topic+tags)
-    - compares policy.decide_action vs _decide_action_from_interest across many random videos
+    - compares policy.predicted_action vs _decide_action_from_interest across many random videos
+      (both are the platform's ranking model; realised decide_action diverges for watchers)
     """
     user = _make_user(phenotype)
     pool = _make_realistic_pool(seed=123, n=200)
 
     for v in pool:
         i = interest_score(user, v)
-        baseline = decide_action(user, v)
+        baseline = predicted_action(user, v)
         opt = _decide_action_from_interest(
             phenotype=user.phenotype,
             sentiment_threshold=user.sentiment_threshold,

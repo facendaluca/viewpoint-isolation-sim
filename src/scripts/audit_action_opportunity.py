@@ -1,20 +1,32 @@
 """
-Risk-01 diagnostic: locate where non-Watch action opportunity disappears in the
-heuristic arm of a compare-style run.
+Risk-01 diagnostic: locate where non-Watch action opportunity disappears in a
+heuristic run, and record the predicted-versus-realised action evidence.
 
-The script replays the heuristic arm of a compare config (same corpus builder,
-user builder, seeds and RNG streams as src/scripts/run_compare.py) with a purely
-observational wrapper around the exposure chooser. The wrapper never draws
-randomness and never mutates user or video state, so an audited run and a plain
-run are behaviourally identical. The script proves that per seed, and can also
-byte-compare the replayed step logs against the heuristic CSVs of a frozen run.
+The script replays the heuristic arm of a config (same corpus builder, user
+builder, seeds and RNG streams as src/scripts/run_compare.py) with a purely
+observational wrapper around the exposure chooser. It accepts both compare
+configs (policy.llm present, e.g. configs/experiment_compare.json) and plain
+heuristic configs (e.g. configs/eval/E3_explore_low.json); the config is
+validated under the matching runner contract, and only the heuristic arm is
+ever replayed — no LLM calls. The wrapper never draws randomness and never
+mutates user or video state, so an audited run and a plain run are
+behaviourally identical. The script proves that per seed, and for compare
+configs it can also byte-compare the replayed step logs against the heuristic
+CSVs of a frozen run.
 
 Three stages are measured at every step, on the pre-serve user state:
 
-    pool   -> the heuristic action for every video in the corpus
+    pool   -> every video in the corpus
     slate  -> the top_k candidates the ranker retains (same ordering rule as
               choose_video_weighted_top_k, recomputed without touching the RNG)
-    served -> the video the chooser actually returns and the action taken on it
+    served -> the video the chooser actually returns
+
+Each stage records both the platform's predicted action (policy.predicted_action,
+what ranking believes) and the realised action (policy.decide_action, what the
+user does), plus their confusion matrix and the predicted-Watch/realised-Avoid
+refusal count with an explicit denominator. In the CSV/JSON fields, plain
+action names (pool_watch, slate_watch, action, served_action) are realised
+actions; predicted fields are always named as such.
 
 A collapse stage is then classified with the packet's decision rules:
 pool Watch-only means the policy itself saturates; slate Watch-only with a mixed
@@ -37,10 +49,11 @@ from pathlib import Path
 from typing import Any
 
 from fyp_sim.agents import HeuristicDecider
-from fyp_sim.config_validation import validate_experiment_config
+from fyp_sim.artefacts import runtime_provenance
+from fyp_sim.config_validation import RunnerKind, validate_experiment_config
 from fyp_sim.corpus import build_corpus
 from fyp_sim.models import User, UserAction, Video
-from fyp_sim.policy import decide_action, interest_score
+from fyp_sim.policy import decide_action, interest_score, predicted_action
 from fyp_sim.simulation.engine import (
     choose_video_weighted_top_k,
     run_simulation,
@@ -76,6 +89,24 @@ STEP_FIELDS = [
     "unique_served_so_far",
     "top_served_share_so_far",
     "pool_mix_changed_from_prev",
+    # Predicted-versus-realised extension (appended to keep column order stable).
+    "pool_predicted_watch",
+    "pool_predicted_sample",
+    "pool_predicted_avoid",
+    "pool_pred_watch_real_watch",
+    "pool_pred_watch_real_sample",
+    "pool_pred_watch_real_avoid",
+    "pool_pred_sample_real_watch",
+    "pool_pred_sample_real_sample",
+    "pool_pred_sample_real_avoid",
+    "pool_pred_avoid_real_watch",
+    "pool_pred_avoid_real_sample",
+    "pool_pred_avoid_real_avoid",
+    "pool_pred_real_mismatches",
+    "slate_predicted_watch",
+    "slate_predicted_sample",
+    "slate_predicted_avoid",
+    "served_predicted_action",
 ]
 
 SLATE_FIELDS = [
@@ -88,7 +119,57 @@ SLATE_FIELDS = [
     "action",
     "sentiment_gated",
     "duration_s",
+    "predicted_action",
 ]
+
+PV_FIELDS = [
+    "seed",
+    "scope",
+    "total",
+    "predicted_watch",
+    "predicted_sample",
+    "predicted_avoid",
+    "realised_watch",
+    "realised_sample",
+    "realised_avoid",
+    "pred_watch_real_watch",
+    "pred_watch_real_sample",
+    "pred_watch_real_avoid",
+    "pred_sample_real_watch",
+    "pred_sample_real_sample",
+    "pred_sample_real_avoid",
+    "pred_avoid_real_watch",
+    "pred_avoid_real_sample",
+    "pred_avoid_real_avoid",
+    "mismatches",
+    "refusals_predicted_watch_realised_avoid",
+    "refusal_denominator",
+    "refusal_rate",
+]
+
+# Lower-case stage keys used across rows and summary blocks, in a fixed order,
+# mapped to the UserAction values ("Watch"/"Sample"/"Avoid") they stand for.
+_ACTION_KEYS = ("watch", "sample", "avoid")
+_ACTION_VALUE = {
+    "watch": UserAction.WATCH.value,
+    "sample": UserAction.SAMPLE.value,
+    "avoid": UserAction.AVOID.value,
+}
+
+
+def detect_runner_kind(cfg: dict[str, Any]) -> RunnerKind:
+    """Pick the validation contract a config belongs to.
+
+    Configs with an LLM policy block are compare-style configs (run_compare is
+    their runner, and it is the only place the heuristic and LLM arms pair up).
+    Everything else is a plain heuristic batch config, like the E-series evals.
+    The audit itself always replays the heuristic arm only.
+    """
+    policy = cfg.get("policy") or {}
+    mode = str(policy.get("mode", "heuristic")).strip().lower()
+    if mode == "llm" or policy.get("llm") is not None:
+        return "compare"
+    return "batch"
 
 
 def _dist_stats(values: list[float]) -> dict[str, float]:
@@ -153,10 +234,12 @@ class OpportunityAuditor:
 
         video = choose_video_weighted_top_k(user, pool, rng, top_k=top_k, rank_alpha=rank_alpha)
 
-        # The decider runs on this same pre-update state, so this predicted
-        # action should match the action the engine logs for the step.
+        # The decider runs on this same pre-update state, so the realised
+        # action here should match the action the engine logs for the step.
+        # The predicted action is what the ranker believed about the same video.
         row["served_video_id"] = video.video_id
         row["served_action"] = decide_action(user, video).value
+        row["served_predicted_action"] = predicted_action(user, video).value
         row["served_interest"] = round(interest_score(user, video), 6)
         self._served_counts[video.video_id] += 1
         row["unique_served_so_far"] = len(self._served_counts)
@@ -171,15 +254,25 @@ class OpportunityAuditor:
         max_d = max(v.duration_s for v in pool) if pool else 0
 
         pool_actions = [decide_action(user, v) for v in pool]
+        pool_predicted = [predicted_action(user, v) for v in pool]
         pool_interests = [interest_score(user, v) for v in pool]
         pool_counts = _action_counts(pool_actions)
+        pool_predicted_counts = _action_counts(pool_predicted)
         pool_stats = _dist_stats(pool_interests)
         sentiment_gated = sum(1 for v in pool if v.sentiment_score < user.sentiment_threshold)
 
+        # Predicted-versus-realised confusion over the whole pool, still pure reads.
+        pool_confusion = Counter(
+            (p.value, r.value) for p, r in zip(pool_predicted, pool_actions, strict=True)
+        )
+        pool_mismatches = sum(n for (p, r), n in pool_confusion.items() if p != r)
+
         slate = _ranked_slate(user, pool, top_k=top_k, rank_alpha=rank_alpha, max_duration=max_d)
         slate_actions = [decide_action(user, v) for _, v in slate]
+        slate_predicted = [predicted_action(user, v) for _, v in slate]
         slate_interests = [interest_score(user, v) for _, v in slate]
         slate_counts = _action_counts(slate_actions)
+        slate_predicted_counts = _action_counts(slate_predicted)
 
         # Counterfactual slate under interest-only ranking (rank_alpha=0).
         # This separates "the engagement proxy pushed Watch items up" from
@@ -199,6 +292,7 @@ class OpportunityAuditor:
                     "action": decide_action(user, v).value,
                     "sentiment_gated": int(v.sentiment_score < user.sentiment_threshold),
                     "duration_s": v.duration_s,
+                    "predicted_action": predicted_action(user, v).value,
                 }
             )
 
@@ -206,7 +300,7 @@ class OpportunityAuditor:
         changed = int(self._prev_pool_mix is not None and pool_mix != self._prev_pool_mix)
         self._prev_pool_mix = pool_mix
 
-        return {
+        row = {
             "seed": self.seed,
             "t": self._t,
             "pool_watch": pool_counts["watch"],
@@ -229,7 +323,19 @@ class OpportunityAuditor:
             "interest_only_slate_sample": interest_only_counts["sample"],
             "interest_only_slate_avoid": interest_only_counts["avoid"],
             "pool_mix_changed_from_prev": changed,
+            "pool_predicted_watch": pool_predicted_counts["watch"],
+            "pool_predicted_sample": pool_predicted_counts["sample"],
+            "pool_predicted_avoid": pool_predicted_counts["avoid"],
+            "pool_pred_real_mismatches": pool_mismatches,
+            "slate_predicted_watch": slate_predicted_counts["watch"],
+            "slate_predicted_sample": slate_predicted_counts["sample"],
+            "slate_predicted_avoid": slate_predicted_counts["avoid"],
         }
+        for p in _ACTION_KEYS:
+            for r in _ACTION_KEYS:
+                cell = pool_confusion.get((_ACTION_VALUE[p], _ACTION_VALUE[r]), 0)
+                row[f"pool_pred_{p}_real_{r}"] = cell
+        return row
 
 
 def classify_collapse_stage(step_rows: list[dict[str, Any]]) -> str:
@@ -248,6 +354,154 @@ def classify_collapse_stage(step_rows: list[dict[str, Any]]) -> str:
     return "no_watch_collapse"
 
 
+def _refusal_rate(refusals: int, denominator: int, denominator_is: str) -> dict[str, Any]:
+    """Refusal rate with its denominator spelled out, never a bare percentage."""
+    return {
+        "numerator": refusals,
+        "denominator": denominator,
+        "denominator_is": denominator_is,
+        "rate": (refusals / denominator) if denominator else None,
+    }
+
+
+def _pv_block(
+    predicted: dict[str, int],
+    realised: dict[str, int],
+    confusion: dict[str, dict[str, int]],
+    *,
+    total: int,
+    denominator_is: str,
+) -> dict[str, Any]:
+    """One predicted-versus-realised evidence block (pool, slate or served)."""
+    diagonal = sum(confusion[a][a] for a in _ACTION_KEYS)
+    refusals = confusion["watch"]["avoid"]
+    return {
+        "total": total,
+        "predicted": predicted,
+        "realised": realised,
+        "confusion_predicted_to_realised": confusion,
+        "mismatches": total - diagonal,
+        "refusals_predicted_watch_realised_avoid": refusals,
+        "refusal_rate": _refusal_rate(refusals, predicted["watch"], denominator_is),
+    }
+
+
+def _served_block_from_confusion(
+    confusion: dict[str, dict[str, int]], steps: int
+) -> dict[str, Any]:
+    predicted = {p: sum(confusion[p].values()) for p in _ACTION_KEYS}
+    realised = {r: sum(confusion[p][r] for p in _ACTION_KEYS) for r in _ACTION_KEYS}
+    block = _pv_block(
+        predicted, realised, confusion, total=steps, denominator_is="served_predicted_watch"
+    )
+    return {"steps": steps, **block}
+
+
+def _sum_confusions(
+    confusions: list[dict[str, dict[str, int]]],
+) -> dict[str, dict[str, int]]:
+    return {
+        p: {r: sum(c[p][r] for c in confusions) for r in _ACTION_KEYS} for p in _ACTION_KEYS
+    }
+
+
+def aggregate_predicted_vs_realised(pv_by_seed: list[dict[str, Any]]) -> dict[str, Any]:
+    """Cross-seed aggregate of the per-seed evidence blocks.
+
+    The t=0 pool block is deterministic (same corpus, same initial user), so it
+    is reported once and flagged if any seed ever disagrees; served and slate
+    blocks are summed across seeds.
+    """
+    pool_blocks = [pv["pool_t0"] for pv in pv_by_seed]
+    pool_identical = all(block == pool_blocks[0] for block in pool_blocks)
+    served_confusion = _sum_confusions(
+        [pv["served"]["confusion_predicted_to_realised"] for pv in pv_by_seed]
+    )
+    return {
+        "pool_t0_identical_across_seeds": pool_identical,
+        "pool_t0": pool_blocks[0] if pool_identical else None,
+        "served": _served_block_from_confusion(
+            served_confusion, sum(pv["served"]["steps"] for pv in pv_by_seed)
+        ),
+        "slate": {
+            "slots": sum(pv["slate"]["slots"] for pv in pv_by_seed),
+            "predicted": {
+                k: sum(pv["slate"]["predicted"][k] for pv in pv_by_seed) for k in _ACTION_KEYS
+            },
+            "realised": {
+                k: sum(pv["slate"]["realised"][k] for pv in pv_by_seed) for k in _ACTION_KEYS
+            },
+        },
+    }
+
+
+def _predicted_vs_realised_blocks(step_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Assemble the pool_t0 / served / slate evidence blocks from step rows."""
+    t0 = step_rows[0]
+    pool_total = t0["pool_watch"] + t0["pool_sample"] + t0["pool_avoid"]
+    pool_t0 = _pv_block(
+        {k: t0[f"pool_predicted_{k}"] for k in _ACTION_KEYS},
+        {k: t0[f"pool_{k}"] for k in _ACTION_KEYS},
+        {p: {r: t0[f"pool_pred_{p}_real_{r}"] for r in _ACTION_KEYS} for p in _ACTION_KEYS},
+        total=pool_total,
+        denominator_is="pool_t0_predicted_watch",
+    )
+
+    served_pairs = Counter(
+        (r["served_predicted_action"], r["served_action"]) for r in step_rows
+    )
+    served_confusion = {
+        p: {r: served_pairs.get((_ACTION_VALUE[p], _ACTION_VALUE[r]), 0) for r in _ACTION_KEYS}
+        for p in _ACTION_KEYS
+    }
+    served = _served_block_from_confusion(served_confusion, len(step_rows))
+
+    slate = {
+        "slots": sum(r["slate_watch"] + r["slate_sample"] + r["slate_avoid"] for r in step_rows),
+        "predicted": {k: sum(r[f"slate_predicted_{k}"] for r in step_rows) for k in _ACTION_KEYS},
+        "realised": {k: sum(r[f"slate_{k}"] for r in step_rows) for k in _ACTION_KEYS},
+    }
+
+    return {"pool_t0": pool_t0, "served": served, "slate": slate}
+
+
+def _reconciliation_checks(
+    step_rows: list[dict[str, Any]],
+    pv: dict[str, Any],
+    logged_counts: Counter,
+) -> dict[str, bool]:
+    """Prove every predicted/realised total against the row counts it came from."""
+    pool_total = pv["pool_t0"]["total"]
+    pool_ok = all(
+        sum(r[f"pool_predicted_{k}"] for k in _ACTION_KEYS) == pool_total
+        and sum(r[f"pool_{k}"] for k in _ACTION_KEYS) == pool_total
+        and sum(r[f"pool_pred_{p}_real_{q}"] for p in _ACTION_KEYS for q in _ACTION_KEYS)
+        == pool_total
+        for r in step_rows
+    )
+    slate_ok = all(
+        sum(r[f"slate_predicted_{k}"] for k in _ACTION_KEYS)
+        == sum(r[f"slate_{k}"] for k in _ACTION_KEYS)
+        for r in step_rows
+    ) and pv["slate"]["slots"] == sum(pv["slate"]["realised"].values())
+    steps = len(step_rows)
+    served = pv["served"]
+    served_ok = (
+        served["steps"] == steps
+        and sum(served["predicted"].values()) == steps
+        and sum(served["realised"].values()) == steps
+    )
+    served_matches_logs = served["realised"] == {
+        k: logged_counts.get(_ACTION_VALUE[k], 0) for k in _ACTION_KEYS
+    }
+    return {
+        "pool_totals_match_pool_size": pool_ok,
+        "slate_totals_match_slots": slate_ok,
+        "served_totals_match_steps": served_ok,
+        "served_realised_matches_engine_logs": served_matches_logs,
+    }
+
+
 def summarise_seed(step_rows: list[dict[str, Any]], logs: list[Any]) -> dict[str, Any]:
     steps = len(step_rows)
     pool_total = (
@@ -256,6 +510,7 @@ def summarise_seed(step_rows: list[dict[str, Any]], logs: list[Any]) -> dict[str
     served_counts = Counter(r["served_action"] for r in step_rows)
     logged_counts = Counter(r.action for r in logs)
     first_change = next((r["t"] for r in step_rows if r["pool_mix_changed_from_prev"]), None)
+    pv = _predicted_vs_realised_blocks(step_rows)
     return {
         "seed": step_rows[0]["seed"],
         "steps": steps,
@@ -289,6 +544,8 @@ def summarise_seed(step_rows: list[dict[str, Any]], logs: list[Any]) -> dict[str
         "top_served_share": step_rows[-1]["top_served_share_so_far"],
         "first_pool_mix_change_step": first_change,
         "collapse_stage": classify_collapse_stage(step_rows),
+        "predicted_vs_realised": pv,
+        "reconciliation": _reconciliation_checks(step_rows, pv, logged_counts),
     }
 
 
@@ -315,7 +572,9 @@ def replay_heuristic_arm(
     """Replay one heuristic-arm seed exactly as run_compare.main does."""
     rng = random.Random(seed)
     engagement_rng = (
-        random.Random(f"{seed}:engagement") if bool(cfg["separate_rng_streams"]) else None
+        random.Random(f"{seed}:engagement")
+        if bool(cfg.get("separate_rng_streams", False))
+        else None
     )
     user = build_user(cfg)
     logs = run_simulation(
@@ -380,9 +639,41 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, Any]]) ->
         writer.writerows(rows)
 
 
+def _pv_csv_row(seed_label: str, scope: str, block: dict[str, Any]) -> dict[str, Any]:
+    """Flatten one evidence block into a predicted_vs_realised.csv row.
+
+    Slate blocks carry counts only, so their confusion and refusal columns stay
+    blank; the per-candidate detail lives in action_opportunity_slate.csv.
+    """
+    row: dict[str, Any] = {field: "" for field in PV_FIELDS}
+    row["seed"] = seed_label
+    row["scope"] = scope
+    row["total"] = block["total"] if "total" in block else block["slots"]
+    for k in _ACTION_KEYS:
+        row[f"predicted_{k}"] = block["predicted"][k]
+        row[f"realised_{k}"] = block["realised"][k]
+    confusion = block.get("confusion_predicted_to_realised")
+    if confusion is not None:
+        for p in _ACTION_KEYS:
+            for r in _ACTION_KEYS:
+                row[f"pred_{p}_real_{r}"] = confusion[p][r]
+        rate = block["refusal_rate"]
+        row["mismatches"] = block["mismatches"]
+        row["refusals_predicted_watch_realised_avoid"] = block[
+            "refusals_predicted_watch_realised_avoid"
+        ]
+        row["refusal_denominator"] = rate["denominator"]
+        row["refusal_rate"] = "" if rate["rate"] is None else round(rate["rate"], 6)
+    return row
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
-        description="Observational action-opportunity audit of the heuristic compare arm."
+        description=(
+            "Observational action-opportunity audit of a heuristic run: the "
+            "heuristic arm of a compare config, or a heuristic-mode config "
+            "such as the E-series evals."
+        )
     )
     p.add_argument("--config", type=Path, default=Path("configs/experiment_compare.json"))
     p.add_argument("--steps", type=int, default=75)
@@ -399,9 +690,18 @@ def main() -> None:
     args = p.parse_args()
 
     cfg = load_config(args.config)
-    audit = validate_experiment_config(cfg, runner="compare", cfg_path=args.config)
+    runner_kind = detect_runner_kind(cfg)
+    audit = validate_experiment_config(cfg, runner=runner_kind, cfg_path=args.config)
     for warning in audit.warnings:
         print(f"[config warning] {warning}")
+
+    if args.frozen_run is not None and runner_kind != "compare":
+        raise SystemExit(
+            "--frozen-run byte-comparison expects a compare run layout "
+            "(logs/heuristic/run_seed_<seed>.csv). This config has no LLM "
+            "block, so there is no compare run to match; re-run without "
+            "--frozen-run."
+        )
 
     steps = int(args.steps)
     seeds = [int(s) for s in args.seeds]
@@ -413,7 +713,11 @@ def main() -> None:
     step_rows: list[dict[str, Any]] = []
     slate_rows: list[dict[str, Any]] = []
     per_seed: dict[str, Any] = {}
-    verification: dict[str, Any] = {"observer_effect_identical": {}, "frozen_prefix_match": {}}
+    verification: dict[str, Any] = {
+        "observer_effect_identical": {},
+        "frozen_prefix_match": {},
+        "totals_reconcile": {},
+    }
     all_ok = True
 
     for seed in seeds:
@@ -431,15 +735,24 @@ def main() -> None:
             all_ok = all_ok and match
 
         seed_summary = summarise_seed(auditor.step_rows, logs)
-        all_ok = all_ok and seed_summary["served_matches_logged"]
+        reconciled = all(seed_summary["reconciliation"].values())
+        verification["totals_reconcile"][str(seed)] = reconciled
+        all_ok = all_ok and seed_summary["served_matches_logged"] and reconciled
         per_seed[str(seed)] = seed_summary
         step_rows.extend(auditor.step_rows)
         slate_rows.extend(auditor.slate_rows)
+
+    aggregate_pv = aggregate_predicted_vs_realised(
+        [per_seed[str(seed)]["predicted_vs_realised"] for seed in seeds]
+    )
+    all_ok = all_ok and aggregate_pv["pool_t0_identical_across_seeds"]
 
     stages = sorted({s["collapse_stage"] for s in per_seed.values()})
     summary = {
         "config": str(args.config),
         "config_sha256": _config_sha256(args.config),
+        "runner_kind": runner_kind,
+        "provenance": runtime_provenance(),
         "steps": steps,
         "seeds": seeds,
         "engine_params": {
@@ -447,28 +760,60 @@ def main() -> None:
             "rank_alpha": float(cfg["rank_alpha"]),
             "enable_interest_updates": bool(cfg.get("enable_interest_updates", False)),
             "enable_viewpoint_drift": bool(cfg.get("enable_viewpoint_drift", False)),
-            "separate_rng_streams": bool(cfg["separate_rng_streams"]),
+            "separate_rng_streams": bool(cfg.get("separate_rng_streams", False)),
         },
         "config_warnings": list(audit.warnings),
         "per_seed": per_seed,
         "aggregate_collapse_stage": stages[0] if len(stages) == 1 else "mixed",
+        "predicted_vs_realised_aggregate": aggregate_pv,
         "verification": verification,
     }
 
     _write_csv(out_dir / "action_opportunity_steps.csv", STEP_FIELDS, step_rows)
     _write_csv(out_dir / "action_opportunity_slate.csv", SLATE_FIELDS, slate_rows)
+
+    pv_rows: list[dict[str, Any]] = []
+    for seed in seeds:
+        pv = per_seed[str(seed)]["predicted_vs_realised"]
+        for scope in ("pool_t0", "served", "slate"):
+            pv_rows.append(_pv_csv_row(str(seed), scope, pv[scope]))
+    if aggregate_pv["pool_t0"] is not None:
+        pv_rows.append(_pv_csv_row("all", "pool_t0", aggregate_pv["pool_t0"]))
+    pv_rows.append(_pv_csv_row("all", "served", aggregate_pv["served"]))
+    pv_rows.append(_pv_csv_row("all", "slate", aggregate_pv["slate"]))
+    _write_csv(out_dir / "predicted_vs_realised.csv", PV_FIELDS, pv_rows)
+
     summary_path = out_dir / "action_opportunity_summary.json"
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, sort_keys=True)
 
     for seed, s in per_seed.items():
+        pv = s["predicted_vs_realised"]
+        pool_t0 = pv["pool_t0"]
+        served = pv["served"]
         print(
             f"[seed {seed}] pool_t0 W/S/A={s['pool_t0']['watch']}/{s['pool_t0']['sample']}/"
             f"{s['pool_t0']['avoid']} slate_watch_only={s['slate_watch_only_step_share']:.2f} "
             f"served={s['logged_action_counts']} unique_served={s['unique_served']} "
             f"first_pool_mix_change={s['first_pool_mix_change_step']} stage={s['collapse_stage']}"
         )
+        print(
+            f"[seed {seed}] predicted_t0 W/S/A={pool_t0['predicted']['watch']}/"
+            f"{pool_t0['predicted']['sample']}/{pool_t0['predicted']['avoid']} "
+            f"pred_watch->real_avoid_t0="
+            f"{pool_t0['refusals_predicted_watch_realised_avoid']}/"
+            f"{pool_t0['refusal_rate']['denominator']} "
+            f"served_refusals={served['refusals_predicted_watch_realised_avoid']}/"
+            f"{served['refusal_rate']['denominator']}"
+        )
     print(f"[verdict] collapse_stage={summary['aggregate_collapse_stage']}")
+    agg_served = aggregate_pv["served"]
+    print(
+        f"[predicted-vs-realised] served refusals across seeds: "
+        f"{agg_served['refusals_predicted_watch_realised_avoid']}/"
+        f"{agg_served['refusal_rate']['denominator']} "
+        f"(denominator = served predicted-Watch)"
+    )
     print(f"[verification] {json.dumps(verification)}")
     print(f"Wrote audit artefacts to: {out_dir}")
 

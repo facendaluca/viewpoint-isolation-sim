@@ -11,8 +11,8 @@ from fyp_sim.policy import INTEREST_BRACKET_THRESHOLD, SAMPLER_WATCH_THRESHOLD
 
 RunnerKind = Literal["batch", "compare", "sweep"]
 
-# An initial affinity at or above these values puts a user inside the heuristic
-# Watch region from step 0 (see fyp_sim.policy.decide_action).
+# An initial affinity at or above these values puts a user inside the
+# platform's predicted-Watch region from step 0 (see fyp_sim.policy.predicted_action).
 _WATCH_THRESHOLDS = {
     "watcher": INTEREST_BRACKET_THRESHOLD,
     "sampler": SAMPLER_WATCH_THRESHOLD,
@@ -129,25 +129,37 @@ def _validate_user(user: Any, path: str, *, agent: bool = False) -> None:
 
 
 def _watch_saturation_warning(user_obj: dict[str, Any], path: str) -> str | None:
-    """Flag users who already sit inside the Watch region before any feedback.
+    """Flag users who already sit inside the predicted-Watch region before any feedback.
 
     Under exploit-only exposure (no exploration), a top-k ranker can then fill
-    every slate with Watch-eligible videos, so the heuristic arm degenerates to
-    Watch-only behaviour by construction. That is a legitimate experimental
-    condition, but it must be reported as an exploit-only baseline rather than
-    a realistic mixed-behaviour user model (risk-01 audit finding).
+    every slate with videos the platform predicts will be watched, so serving
+    saturates by construction (risk-01 audit finding). For samplers and
+    avoiders the realised actions saturate too, because their behaviour matches
+    the prediction. Watchers can still refuse tag-hooked videos whose topic is
+    outside their established taste, since that rule is hidden from the ranker,
+    so for them this flags saturated serving rather than guaranteed
+    Watch-only behaviour.
     """
     phenotype = str(user_obj["phenotype"])
     threshold = _WATCH_THRESHOLDS[phenotype]
     top_affinity = max(float(v) for v in user_obj["interest_vector"].values())
     if top_affinity < threshold:
         return None
+    if phenotype == "watcher":
+        behaviour_note = (
+            "realised watcher actions can still mix because the taste rule in "
+            "policy.decide_action is hidden from the ranker's predicted_action"
+        )
+    else:
+        behaviour_note = (
+            "report the heuristic arm of this condition as an exploit-only baseline, "
+            "not a mixed-behaviour user model"
+        )
     return (
-        f"{path} starts inside the heuristic Watch region (max initial affinity "
+        f"{path} starts inside the platform's predicted-Watch region (max initial affinity "
         f"{top_affinity:.2f} >= {phenotype} watch threshold {threshold:.2f}) and no exploration "
-        "is active, so exploit-only top-k exposure can serve Watch-eligible videos exclusively; "
-        "report the heuristic arm of this condition as an exploit-only baseline, not a "
-        "mixed-behaviour user model"
+        "is active, so exploit-only top-k exposure can fill every slate with predicted-Watch "
+        f"videos; {behaviour_note}"
     )
 
 
