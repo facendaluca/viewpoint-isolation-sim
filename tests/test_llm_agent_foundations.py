@@ -82,17 +82,17 @@ def test_llm_valid_then_fallback_on_invalid_output():
     assert invalid_stats["llm_fallback_invalid_output"] == 1
 
 
-def test_decision_v2_4_prompt_renders() -> None:
+def test_decision_v3_2_prompt_renders() -> None:
     user, video = _make_user_video()
-    prompt = render_decision_prompt("decision_v2.4", user=user, video=video)
+    prompt = render_decision_prompt("decision_v3.2", user=user, video=video)
 
-    assert "PROMPT_ID: decision_v2.4" in prompt
+    assert "PROMPT_ID: decision_v3.2" in prompt
     assert "phenotype: watcher" in prompt
     assert "topic_category: sports" in prompt
     assert "computed_interest_score: 0.8" in prompt
     assert "{user." not in prompt
     assert "{video." not in prompt
-    assert '{"action":"Sample","confidence":0.68' in prompt
+    assert '{"action":"Sample","confidence":0.66' in prompt
 
 
 def test_decision_v4_prompt_renders() -> None:

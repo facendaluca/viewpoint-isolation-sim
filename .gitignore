@@ -26,3 +26,6 @@ outputs/runs/
 results/*.csv
 
 results/
+
+# Machine-local agent state
+.claude/settings.local.json
