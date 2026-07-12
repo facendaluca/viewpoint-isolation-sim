@@ -54,6 +54,15 @@ _LLM_KEYS = {
     "max_tokens",
     "rerank_slate",
     "api_key",
+    # Optional sampling controls, transmitted verbatim when present so runs do
+    # not depend on LM Studio server defaults for the parameters they pin.
+    "top_p",
+    "top_k",
+    "min_p",
+    "repeat_penalty",
+    "presence_penalty",
+    "frequency_penalty",
+    "stop",
 }
 _USER_KEYS = {"phenotype", "viewpoint_score", "sentiment_threshold", "interest_vector"}
 _AGENT_KEYS = {"agent_id", *_USER_KEYS}
@@ -318,6 +327,24 @@ def validate_experiment_config(
             _fail("policy.llm.temperature must be non-negative")
         if "max_tokens" in llm_obj:
             _positive_int(llm_obj["max_tokens"], "policy.llm.max_tokens")
+        for name in ("top_p", "min_p"):
+            if name in llm_obj:
+                _bounded(llm_obj[name], f"policy.llm.{name}", 0.0, 1.0)
+        if "top_k" in llm_obj:
+            top_k_value = llm_obj["top_k"]
+            if isinstance(top_k_value, bool) or not isinstance(top_k_value, int) or top_k_value < 0:
+                _fail("policy.llm.top_k must be a non-negative integer")
+        for name in ("repeat_penalty", "presence_penalty", "frequency_penalty"):
+            if name in llm_obj:
+                _finite_number(llm_obj[name], f"policy.llm.{name}")
+        if "stop" in llm_obj:
+            stop = llm_obj["stop"]
+            if (
+                not isinstance(stop, list)
+                or not stop
+                or not all(isinstance(item, str) and item for item in stop)
+            ):
+                _fail("policy.llm.stop must be a non-empty list of non-empty strings")
         if "rerank_slate" in llm_obj and not isinstance(llm_obj["rerank_slate"], bool):
             _fail("policy.llm.rerank_slate must be a boolean")
         if llm_obj.get("rerank_slate", False) and curiosity > 0.0:

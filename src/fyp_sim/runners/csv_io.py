@@ -61,6 +61,10 @@ def write_run_log_csv(
                 "llm_completion_tokens",
                 "llm_total_tokens",
                 "llm_token_count_estimated",
+                "llm_request_seed",
+                "llm_call_role",
+                "llm_prompt_sha256",
+                "llm_response_sha256",
             ]
         w.writerow(header)
 
@@ -110,6 +114,10 @@ def write_run_log_csv(
                     row.llm_completion_tokens if is_llm else "",
                     row.llm_total_tokens if is_llm else "",
                     row.llm_token_count_estimated if is_llm else "",
+                    row.llm_request_seed if is_llm and row.llm_request_seed is not None else "",
+                    row.llm_call_role if is_llm else "",
+                    row.llm_prompt_sha256 if is_llm else "",
+                    row.llm_response_sha256 if is_llm else "",
                 ]
             w.writerow(base)
 

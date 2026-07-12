@@ -46,13 +46,27 @@ def build_decider(cfg: dict[str, Any]):
         if "model" not in llm_cfg:
             raise ValueError("policy.llm.model is required when policy.mode='llm'")
 
-        client = OpenAICompatClient(
-            base_url=(llm_cfg.get("base_url") or "http://100.127.102.30:1234/v1"),
-            model=str(llm_cfg.get("model")),
-            api_key=llm_cfg.get("api_key"),
-            temperature=float(llm_cfg.get("temperature", 0.0)),
-            max_tokens=llm_cfg.get("max_tokens"),
-        )
+        client_kwargs: dict[str, Any] = {
+            "base_url": (llm_cfg.get("base_url") or "http://100.127.102.30:1234/v1"),
+            "model": str(llm_cfg.get("model")),
+            "api_key": llm_cfg.get("api_key"),
+            "temperature": float(llm_cfg.get("temperature", 0.0)),
+            "max_tokens": llm_cfg.get("max_tokens"),
+        }
+        # Forward optional sampling controls only when the config pins them, so
+        # existing configs keep their previous request bodies (plus the seed).
+        for name in (
+            "top_p",
+            "top_k",
+            "min_p",
+            "repeat_penalty",
+            "presence_penalty",
+            "frequency_penalty",
+            "stop",
+        ):
+            if name in llm_cfg:
+                client_kwargs[name] = llm_cfg[name]
+        client = OpenAICompatClient(**client_kwargs)
         return LLMDecider(
             prompt_id=str(llm_cfg.get("prompt_id", "decision_v1")),
             client=client,
@@ -205,6 +219,12 @@ def run_seed_sweep(
                 user = base_user
             else:
                 user = build_user_from_dict(agent_user_dict)
+
+            # Run-scoped request-seed identity: (simulation seed, agent) name
+            # this run's stochastic stream; the engine adds step and call scope.
+            context_setter = getattr(decider, "set_request_context", None)
+            if callable(context_setter):
+                context_setter(experiment_seed=seed, agent_id=agent_id, stream="decision")
 
             diagnostics_before = llm_diagnostics_snapshot(decider)
             seed_started = time.perf_counter()

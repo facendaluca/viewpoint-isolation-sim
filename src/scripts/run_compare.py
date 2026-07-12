@@ -27,6 +27,7 @@ from fyp_sim.candidate_trace import (
 from fyp_sim.cli import run_cli
 from fyp_sim.config_validation import validate_experiment_config
 from fyp_sim.corpus import build_corpus
+from fyp_sim.llm.request_seed import REQUEST_SEED_SCHEMA_VERSION
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.plotting import make_compare_plot
 from fyp_sim.runtime_overrides import apply_runtime_overrides
@@ -155,6 +156,10 @@ _LOG_HEADERS = [
     "llm_completion_tokens",
     "llm_total_tokens",
     "llm_token_count_estimated",
+    "llm_request_seed",
+    "llm_call_role",
+    "llm_prompt_sha256",
+    "llm_response_sha256",
 ]
 
 
@@ -202,6 +207,14 @@ def write_step_logs_csv(path: Path, logs: list[Any]) -> None:
                 "llm_token_count_estimated": (
                     getattr(r, "llm_token_count_estimated", False) if is_llm else ""
                 ),
+                "llm_request_seed": (
+                    getattr(r, "llm_request_seed", None)
+                    if is_llm and getattr(r, "llm_request_seed", None) is not None
+                    else ""
+                ),
+                "llm_call_role": getattr(r, "llm_call_role", "") if is_llm else "",
+                "llm_prompt_sha256": getattr(r, "llm_prompt_sha256", "") if is_llm else "",
+                "llm_response_sha256": getattr(r, "llm_response_sha256", "") if is_llm else "",
             }
             w.writerow(row)
 
@@ -315,13 +328,27 @@ def build_llm_decider(cfg: dict[str, Any]) -> Any:
     if not model:
         raise ValueError("policy.llm.model is required to run the LLM baseline")
 
-    client = OpenAICompatClient(
-        base_url=str(llm_cfg.get("base_url", "http://100.127.102.30:1234/v1")),
-        model=str(model),
-        api_key=llm_cfg.get("api_key"),
-        temperature=float(llm_cfg.get("temperature", 0.0)),
-        max_tokens=llm_cfg.get("max_tokens"),
-    )
+    client_kwargs: dict[str, Any] = {
+        "base_url": str(llm_cfg.get("base_url", "http://100.127.102.30:1234/v1")),
+        "model": str(model),
+        "api_key": llm_cfg.get("api_key"),
+        "temperature": float(llm_cfg.get("temperature", 0.0)),
+        "max_tokens": llm_cfg.get("max_tokens"),
+    }
+    # Optional sampling controls are forwarded only when the config pins them,
+    # so existing configs keep byte-identical request bodies (plus the seed).
+    for name in (
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+        "frequency_penalty",
+        "stop",
+    ):
+        if name in llm_cfg:
+            client_kwargs[name] = llm_cfg[name]
+    client = OpenAICompatClient(**client_kwargs)
 
     # only pass kwargs that exist in the LLMDecider constructor
     llm_kwargs: dict[str, Any] = {
@@ -455,6 +482,11 @@ def main() -> None:
             # Fresh user per (agent, seed): drift/interest updates mutate state,
             # so a shared instance would leak state across runs and break fairness.
             user = build_user(cfg)
+            # Run-scoped request-seed identity for this arm's decider (no-op for
+            # the heuristic arm). Compare runs are single-user by construction.
+            context_setter = getattr(decider, "set_request_context", None)
+            if callable(context_setter):
+                context_setter(experiment_seed=seed, agent_id="user", stream="decision")
             collector = (
                 CandidateTraceCollector(seed=seed)
                 if candidate_trace_enabled and agent_name == "llm"
@@ -558,9 +590,12 @@ def main() -> None:
         "llm_fallback_timeout",
         "llm_fallback_client_error",
         "llm_fallback_invalid_output",
+        "llm_seeded_request_count",
+        "llm_seed_collision_count",
     ]
     llm_totals = {key: sum(int(row[key]) for row in llm_rows) for key in count_keys}
     llm_calls = llm_totals["llm_call_count"]
+    llm_client = getattr(deciders.get("llm"), "client", None)
     llm_diagnostics = {
         **llm_totals,
         "llm_valid_rate": llm_totals["llm_valid_count"] / llm_calls if llm_calls else 0.0,
@@ -573,6 +608,17 @@ def main() -> None:
             if llm_totals["llm_token_estimated_calls"] == 0
             else "mixed_or_character_estimate"
         ),
+        # Request-seed provenance: the derivation schema plus the complete
+        # sampling configuration the client actually transmitted (parameters
+        # the config left unset are marked server_default, not guessed).
+        "request_seed_schema_version": REQUEST_SEED_SCHEMA_VERSION,
+        "llm_api_type": "openai_chat_completions",
+        "llm_effective_sampling": (
+            llm_client.effective_sampling()
+            if llm_client is not None and hasattr(llm_client, "effective_sampling")
+            else None
+        ),
+        "llm_response_model": getattr(llm_client, "last_response_model", None),
     }
     write_json(run_dir / "llm_diagnostics.json", llm_diagnostics)
 

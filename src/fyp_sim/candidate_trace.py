@@ -61,6 +61,12 @@ class CandidateRecord:
     heuristic_score: float  # first-pass score with the heuristic engagement proxy
     llm_engagement: float  # engagement proxy of the decider's action
     rerank_score: float  # final score used for weighted selection
+    # Request-seed provenance (see fyp_sim.llm.request_seed): the derived
+    # sampling seed of this candidate's call plus prompt/response hashes that
+    # identify the exact exchange without storing its content.
+    request_seed: int | None = None
+    prompt_sha256: str = ""
+    response_sha256: str = ""
 
 
 @dataclass(slots=True)

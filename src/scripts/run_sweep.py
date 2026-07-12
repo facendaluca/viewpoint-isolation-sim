@@ -166,6 +166,14 @@ def main() -> None:
                 # Rebuild the user when state mutates so seeds/grid cells stay independent
                 user = build_user(cfg) if mutates_user else base_user
 
+                # Run-scoped request-seed identity. The grid cell is deliberately
+                # not part of it: cells evaluating the same logical context share
+                # the stochastic draw, so parameter effects are not confounded by
+                # different sampling noise.
+                context_setter = getattr(decider, "set_request_context", None)
+                if callable(context_setter):
+                    context_setter(experiment_seed=seed, agent_id="user", stream="decision")
+
                 diagnostics_before = llm_diagnostics_snapshot(decider)
                 seed_started = time.perf_counter()
                 logs = run_simulation(

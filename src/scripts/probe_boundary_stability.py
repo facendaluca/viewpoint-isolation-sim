@@ -8,6 +8,12 @@ seeds for an identical prompt. This probe measures that instability directly
 with a small, hard-capped number of live calls. It never mutates any state and
 writes its evidence to a standalone JSON file.
 
+Since the request-seed change every repeat re-sends the identical logical
+request with the SAME derived sampling seed (probe stream, call_role="probe"),
+so an action flip now measures residual server/runtime nondeterminism under a
+pinned seed rather than raw repeat noise. Historical probe outputs written
+before request seeding measured the unpinned behaviour and are not comparable.
+
 Usage:
     python -m src.scripts.probe_boundary_stability \
         --config configs/experiment_compare.json --video-ids 871 431 --repeats 12
@@ -77,6 +83,16 @@ def main() -> None:
         actions: list[str] = []
         details = []
         for _ in range(args.repeats):
+            # Same identity every repeat on purpose: the repeats re-send one
+            # logical request, so they share one derived sampling seed.
+            decider.set_request_context(
+                experiment_seed=0,
+                agent_id="user",
+                stream="probe",
+                step=0,
+                call_role="probe",
+                draw_index=video_id,
+            )
             action = decider.decide_next_action(user, video)
             meta = decider.last_meta
             calls_made += 1
@@ -89,6 +105,9 @@ def main() -> None:
                     "fallback_reason": meta.fallback_reason,
                     "confidence": meta.llm_confidence,
                     "total_tokens": meta.total_tokens,
+                    "request_seed": meta.request_seed,
+                    "request_seed_sent": meta.request_seed_sent,
+                    "response_sha256": meta.response_sha256,
                 }
             )
         counts: dict[str, int] = {}

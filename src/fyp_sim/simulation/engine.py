@@ -108,6 +108,11 @@ class StepLog:
     llm_completion_tokens: int = 0
     llm_total_tokens: int = 0
     llm_token_count_estimated: bool = False
+    # Request-seed provenance for the call that produced this row's action.
+    llm_request_seed: int | None = None
+    llm_call_role: str = ""
+    llm_prompt_sha256: str = ""
+    llm_response_sha256: str = ""
 
     agent_id: str = ""
 
@@ -160,6 +165,18 @@ def choose_video_weighted_top_k(
     return rng.choices(candidates, weights=weights, k=1)[0]
 
 
+def _set_llm_request_context(decider, **fields) -> None:
+    """Forward request-seed identity fields to deciders that track them.
+
+    Runners own the run scope (simulation seed, agent, stream); the engine owns
+    the step and call scope. Deciders without set_request_context (heuristic,
+    simple test doubles) are left alone.
+    """
+    setter = getattr(decider, "set_request_context", None)
+    if callable(setter):
+        setter(**fields)
+
+
 def select_video_llm_slate(
     user: User,
     pool: list[Video],
@@ -209,6 +226,10 @@ def select_video_llm_slate(
     # Second pass: rescore the slate with the decider's own action.
     rescored = []
     for slate_rank, (heuristic_score, v) in enumerate(slate_scored, start=1):
+        # The candidate's video_id is the draw index: stable across reruns and
+        # across arms whose slates happen to contain the same video, unlike the
+        # slate position.
+        _set_llm_request_context(decider, call_role="rerank_candidate", draw_index=v.video_id)
         action = decider.decide_next_action(user, v)
         meta = getattr(decider, "last_meta", None)
         e = engagement_proxy(action, v, max_duration=max_d)
@@ -240,6 +261,9 @@ def select_video_llm_slate(
                     heuristic_score=heuristic_score,
                     llm_engagement=e,
                     rerank_score=final_score,
+                    request_seed=getattr(meta, "request_seed", None) if meta else None,
+                    prompt_sha256=str(getattr(meta, "prompt_sha256", "") or ""),
+                    response_sha256=str(getattr(meta, "response_sha256", "") or ""),
                 )
             )
 
@@ -373,6 +397,7 @@ def run_simulation(
 
     if phase_tracer is None:
         for t in range(steps):
+            _set_llm_request_context(decider, step=t)
             # Exposure model: choose a candidate video from the current pool (stochastic but seeded).
             if llm_rerank:
                 v, action, meta = select_video_llm_slate(
@@ -387,6 +412,9 @@ def run_simulation(
                 )
             else:
                 v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
+                _set_llm_request_context(
+                    decider, call_role="serve_decision", draw_index=v.video_id
+                )
                 action = decider.decide_next_action(user, v)
                 meta = getattr(decider, "last_meta", None)
             interest_pre = interest_score(user, v)
@@ -440,6 +468,10 @@ def run_simulation(
             llm_token_count_estimated = (
                 bool(getattr(meta, "token_count_estimated", False)) if meta else False
             )
+            llm_request_seed = getattr(meta, "request_seed", None) if meta else None
+            llm_call_role = (getattr(meta, "call_role", "") or "") if meta else ""
+            llm_prompt_sha256 = (getattr(meta, "prompt_sha256", "") or "") if meta else ""
+            llm_response_sha256 = (getattr(meta, "response_sha256", "") or "") if meta else ""
 
             logs.append(
                 StepLog(
@@ -460,6 +492,10 @@ def run_simulation(
                     llm_completion_tokens=llm_completion_tokens,
                     llm_total_tokens=llm_total_tokens,
                     llm_token_count_estimated=llm_token_count_estimated,
+                    llm_request_seed=llm_request_seed,
+                    llm_call_role=llm_call_role,
+                    llm_prompt_sha256=llm_prompt_sha256,
+                    llm_response_sha256=llm_response_sha256,
                     topic_interest=topic_interest_post,
                     interest_keys=interest_keys,
                     interest_pre=interest_pre,
@@ -479,6 +515,7 @@ def run_simulation(
     # Profiled path: record per-phase timings via the provided tracer.
     tracer = phase_tracer
     for t in range(steps):
+        _set_llm_request_context(decider, step=t)
         if llm_rerank:
             with tracer.phase("generate_feed"):
                 v, action, meta = select_video_llm_slate(
@@ -498,6 +535,9 @@ def run_simulation(
                 v = chooser(user, video_pool, rng, top_k=top_k, rank_alpha=rank_alpha)
 
             with tracer.phase("simulate_interaction"):
+                _set_llm_request_context(
+                    decider, call_role="serve_decision", draw_index=v.video_id
+                )
                 action = decider.decide_next_action(user, v)
                 meta = getattr(decider, "last_meta", None)
                 interest_pre = interest_score(user, v)
@@ -555,6 +595,10 @@ def run_simulation(
             llm_token_count_estimated = (
                 bool(getattr(meta, "token_count_estimated", False)) if meta else False
             )
+            llm_request_seed = getattr(meta, "request_seed", None) if meta else None
+            llm_call_role = (getattr(meta, "call_role", "") or "") if meta else ""
+            llm_prompt_sha256 = (getattr(meta, "prompt_sha256", "") or "") if meta else ""
+            llm_response_sha256 = (getattr(meta, "response_sha256", "") or "") if meta else ""
 
             logs.append(
                 StepLog(
@@ -575,6 +619,10 @@ def run_simulation(
                     llm_completion_tokens=llm_completion_tokens,
                     llm_total_tokens=llm_total_tokens,
                     llm_token_count_estimated=llm_token_count_estimated,
+                    llm_request_seed=llm_request_seed,
+                    llm_call_role=llm_call_role,
+                    llm_prompt_sha256=llm_prompt_sha256,
+                    llm_response_sha256=llm_response_sha256,
                     topic_interest=topic_interest_post,
                     interest_keys=interest_keys,
                     interest_pre=interest_pre,

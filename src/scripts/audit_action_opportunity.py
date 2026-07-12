@@ -618,12 +618,30 @@ def verify_observer_effect(
 
 
 def frozen_prefix_matches(frozen_csv: Path, replay_csv: Path, steps: int) -> bool:
-    frozen_lines = frozen_csv.read_text(encoding="utf-8").splitlines()
-    replay_lines = replay_csv.read_text(encoding="utf-8").splitlines()
-    return (
-        len(replay_lines) == steps + 1
-        and len(frozen_lines) >= steps + 1
-        and frozen_lines[: steps + 1] == replay_lines
+    """Column-aware equality against the frozen run's first `steps` rows.
+
+    Every column the frozen run recorded must exist in the replay and match
+    value-for-value, so the behavioural guarantee is exactly as strong as the
+    old raw-line comparison for the frozen schema. Columns added to the log
+    schema after the run froze (e.g. the llm request-seed provenance columns)
+    are additive and deliberately ignored — a frozen run cannot contain them,
+    and requiring raw-byte equality would make every schema addition falsely
+    read as a behaviour change.
+    """
+    with frozen_csv.open(newline="", encoding="utf-8") as f:
+        frozen_rows = list(csv.DictReader(f))
+    with replay_csv.open(newline="", encoding="utf-8") as f:
+        replay_reader = csv.DictReader(f)
+        replay_fields = replay_reader.fieldnames or []
+        replay_rows = list(replay_reader)
+    if not frozen_rows or len(replay_rows) != steps or len(frozen_rows) < steps:
+        return False
+    frozen_fields = list(frozen_rows[0].keys())
+    if any(name not in replay_fields for name in frozen_fields):
+        return False
+    return all(
+        all(frozen_row[name] == replay_row[name] for name in frozen_fields)
+        for frozen_row, replay_row in zip(frozen_rows[:steps], replay_rows, strict=True)
     )
 
 
