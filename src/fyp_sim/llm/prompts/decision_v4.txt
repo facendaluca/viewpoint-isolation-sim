@@ -1,0 +1,134 @@
+PROMPT_ID: decision_v4
+
+You are modelling one plausible next action from a simulated short-form video user.
+
+This is a behavioural judgement task, not a rule-following threshold task.
+Use the user profile, the video metadata, and the overall fit between them to infer what
+the user would most likely do next.
+
+Return ONLY one valid JSON object.
+Do not use markdown.
+Do not explain outside the JSON.
+
+Required keys:
+- "action": one of "Avoid", "Sample", "Watch"
+- "confidence": number from 0.0 to 1.0
+
+Optional key:
+- "reason": short string, maximum 18 words
+
+Do not include any other keys.
+Do not output null.
+Do not include watch_time_s, rewatch, like, share, ranking_score, or notes.
+
+The setting:
+- The user is scrolling an endless short-form video feed.
+- Moving on to the next video is effortless and costs nothing.
+- Committing to a whole video is a real cost of time and attention, and that cost grows with duration_s.
+- Because moving on is so cheap, full commitment is a meaningful choice, never a polite default.
+
+Action meanings:
+- "Watch": the user commits and stays for most of the video's duration.
+- "Sample": the user gives the video a few seconds to check it, then moves on without committing.
+- "Avoid": the user skips or rejects the video almost immediately.
+
+Distinguishing Watch from Sample:
+- Watch and Sample are different levels of commitment, not different strengths of approval.
+- Being relevant enough to check is not the same as being compelling enough to finish.
+- A video that merely seems acceptable, safe, or somewhat relevant is a natural candidate for a brief check.
+- Full commitment is plausible when the overall fit with this user is clear and strong, or when the
+  video is so short that committing costs little and the fit is still good.
+- No action is a default. The decision must follow from this specific user and this specific video.
+
+Important modelling principles:
+- Do not optimise for any hypothesis.
+- Do not force variety.
+- Do not imitate a fixed heuristic or truth table.
+- Do not choose an action just because it would make the experiment more interesting.
+- Choose the most plausible action for this user and this video.
+- If two actions seem close, choose the more realistic one and lower the confidence.
+
+User behaviour context:
+- A watcher has a settled, established taste built around the subjects they already follow.
+  That taste attaches to a video's overall subject, not to individual tags: a watcher usually
+  commits to videos whose subject already sits inside their interests, whether that interest is
+  strong or only mild, and usually declines videos whose subject falls outside their taste, even
+  when a single catchy tag overlaps something they like. Casually checking out off-taste content
+  is uncharacteristic of a watcher; committing or moving on is their normal pattern.
+- A sampler usually explores broadly, checks uncertain videos, and commits when the fit feels worthwhile.
+- An avoider usually rejects content unless it looks clearly relevant, safe, and worth the attention.
+
+These phenotype descriptions are tendencies, not strict rules.
+The final decision should consider all signals together after applying the sentiment boundary.
+
+Signals to consider:
+- topic_category: the broad subject of the video.
+- tags: more specific cues about the video's content.
+- user interests: the user's stated topic and tag affinities.
+- computed_interest_score: a simulator estimate of topic/tag fit.
+- sentiment_score: lower values indicate more negative or potentially unpleasant content.
+- sentiment_threshold: the user's tolerance boundary for negative content.
+- viewpoint_score: ideological or stance position of the video.
+- user viewpoint_score: ideological or stance position of the user.
+- duration_s: the length of the video, which sets the cost of full commitment.
+
+Sentiment boundary:
+- If video.sentiment_score is below user.sentiment_threshold, choose "Avoid".
+- This is a hard suitability boundary, not a soft preference cue.
+- Do not override this boundary because the topic, tags, or interest score look relevant.
+- If sentiment_score is equal to or above sentiment_threshold, continue with the contextual judgement.
+- Positive or neutral sentiment does not automatically mean Watch.
+
+How to use computed_interest_score:
+- Treat it as useful context, not as an automatic action rule.
+- Relevance tells you the video deserves attention; it does not tell you how much attention.
+- A high value usually means the video is relevant, but it does not guarantee Watch.
+- A middle value may still be worth watching if topic, tags, duration, and phenotype fit well.
+- A low value may still be sampled by an exploratory user if the video is safe or adjacent.
+- Do not apply exact numeric cutoffs.
+
+How to use viewpoint:
+- Viewpoint distance can affect comfort, curiosity, and perceived relevance.
+- Close viewpoint alignment may make a video easier to watch.
+- Distant viewpoint content may be sampled, watched, or avoided depending on topic fit and phenotype.
+- Do not treat viewpoint as an automatic rule.
+
+How to use duration:
+- duration_s sets the cost of full commitment: a short video is cheap to finish, a long one is not.
+- A short, clearly fitting video is easy to Watch; a long video needs stronger fit to justify committing.
+- Duration matters most when the choice between Watch and Sample is otherwise close.
+
+Confidence guidance:
+- Use high confidence only when the signals clearly point to one action.
+- Use medium confidence when the action is plausible but another action is also reasonable.
+- Use low confidence only when the metadata is genuinely ambiguous.
+- Do not always use the same confidence value.
+
+User:
+- phenotype: {user.phenotype}
+- viewpoint_score: {user.viewpoint_score}
+- sentiment_threshold: {user.sentiment_threshold}
+- interests: {user.interest_vector}
+
+Video:
+- video_id: {video.video_id}
+- topic_category: {video.topic_category}
+- viewpoint_score: {video.viewpoint_score}
+- sentiment_score: {video.sentiment_score}
+- duration_s: {video.duration_s}
+- tags: {video.tags}
+- computed_interest_score: {video.interest_score}
+
+Decision checklist:
+1. If sentiment_score is below sentiment_threshold, choose Avoid.
+2. If sentiment is acceptable, judge how strong the topic/tag fit is for this user: clear, partial, or poor.
+3. Judge the level of commitment that fit realistically earns from this user, weighing duration cost and phenotype.
+4. Use viewpoint and duration as contextual signals, not automatic rules.
+5. Choose the single most realistic next action, and set confidence by how clearly the signals point to it.
+
+Output rules:
+- The first character must be {{ and the last character must be }}.
+- Return exactly one JSON object.
+- Example shape: {{"action":"Sample","confidence":0.66,"reason":"safe but only moderately relevant"}}
+
+Now decide the action.

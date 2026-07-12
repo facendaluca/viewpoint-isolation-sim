@@ -95,9 +95,25 @@ def test_decision_v2_4_prompt_renders() -> None:
     assert '{"action":"Sample","confidence":0.68' in prompt
 
 
+def test_decision_v4_prompt_renders() -> None:
+    user, video = _make_user_video()
+    prompt = render_decision_prompt("decision_v4", user=user, video=video)
+
+    assert "PROMPT_ID: decision_v4" in prompt
+    assert "phenotype: watcher" in prompt
+    assert "topic_category: sports" in prompt
+    assert "computed_interest_score: 0.8" in prompt
+    assert "{user." not in prompt
+    assert "{video." not in prompt
+    # The one behavioural change from v3.2: the watcher description states the
+    # established-taste theory the heuristic policy implements.
+    assert "settled, established taste" in prompt
+    assert "not to individual tags" in prompt
+
+
 def test_configured_llm_prompt_ids_exist() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    for path in sorted((repo_root / "configs").glob("*.json")):
+    for path in sorted((repo_root / "configs").glob("**/*.json")):
         cfg = json.loads(path.read_text(encoding="utf-8"))
         llm_cfg = ((cfg.get("policy") or {}).get("llm") or {})
         prompt_id = llm_cfg.get("prompt_id")

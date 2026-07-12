@@ -104,6 +104,36 @@ def test_saturation_warning_respects_threshold_and_exploration() -> None:
     assert any("exploit-only" in warning for warning in audit.warnings)
 
 
+def test_watcher_taste_compare_successor_changes_only_user_and_prompt() -> None:
+    # The exploratory watcher compare condition must stay a controlled successor
+    # of the frozen sampler condition: same corpus, same comparison parameters,
+    # same model settings. Only the user phenotype (taken verbatim from E1) and
+    # the prompt id may differ, so any result change is attributable to the
+    # phenotype under comparison rather than to hidden re-tuning.
+    root = Path(__file__).resolve().parents[1]
+    frozen = _load(root / "configs" / "experiment_compare.json")
+    successor_path = root / "configs" / "exploratory" / "experiment_compare_watcher_taste.json"
+    successor = _load(successor_path)
+    e1 = _load(root / "configs" / "eval" / "E1_baseline_single_watcher.json")
+
+    assert set(successor) == set(frozen)
+    for key in frozen:
+        if key not in {"user", "policy"}:
+            assert successor[key] == frozen[key], f"unexpected change in {key}"
+
+    frozen_llm = dict(frozen["policy"]["llm"])
+    successor_llm = dict(successor["policy"]["llm"])
+    assert successor_llm.pop("prompt_id") == "decision_v4"
+    frozen_llm.pop("prompt_id")
+    assert successor_llm == frozen_llm
+
+    assert successor["user"] == e1["user"]
+    assert successor["user"]["phenotype"] == "watcher"
+
+    audit = validate_experiment_config(successor, runner="compare", cfg_path=successor_path)
+    assert any("realised watcher actions can still mix" in warning for warning in audit.warnings)
+
+
 def test_saturation_warning_names_the_affected_agent_in_cohorts() -> None:
     root = Path(__file__).resolve().parents[1]
     path = root / "configs" / "experiment_compare.json"
