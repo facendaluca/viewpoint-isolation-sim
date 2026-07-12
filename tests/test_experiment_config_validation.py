@@ -27,6 +27,26 @@ def test_all_authoritative_experiment_configs_validate() -> None:
         validate_experiment_config(_load(path), runner=runner, cfg_path=path)
 
 
+def test_all_evaluation_configs_are_present_and_validate() -> None:
+    root = Path(__file__).resolve().parents[1]
+    eval_dir = root / "configs" / "eval"
+    expected = [
+        "E1_baseline_single_watcher.json",
+        "E2_baseline_multi_phenotype_cohort.json",
+        "E3_explore_low.json",
+        "E4_explore_base.json",
+        "E5_explore_high.json",
+        "E6_sentiment_strict_vs_lenient.json",
+        "E7_ablation_no_drift.json",
+        "E8_ablation_no_interest_updates.json",
+    ]
+
+    paths = sorted(eval_dir.glob("E*.json"))
+    assert [path.name for path in paths] == expected
+    for path in paths:
+        validate_experiment_config(_load(path), runner="batch", cfg_path=path)
+
+
 def test_unknown_top_level_field_fails_fast() -> None:
     root = Path(__file__).resolve().parents[1]
     path = root / "configs" / "experiment_baseline.json"
