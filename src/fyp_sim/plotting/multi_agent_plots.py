@@ -16,6 +16,7 @@ from .multi_agent_metrics import (
     build_phenotype_lockin_outcome_summary,
     build_phenotype_seed_trajectories,
     build_phenotype_trajectory_summary,
+    cohort_group_label,
     has_multi_agent_run,
     ordered_phenotypes,
     write_phenotype_lockin_summary_csv,
@@ -88,6 +89,7 @@ def plot_phenotype_vii_trajectories(
     threshold: float,
     subtitle: str,
     smoothing_window: int,
+    group_label: str = "Phenotype",
 ) -> None:
     phenotypes = ordered_phenotypes(summary["phenotype"].tolist())
 
@@ -203,7 +205,7 @@ def plot_phenotype_vii_trajectories(
     axes[-1].set_xlabel("Step ID")
     axes[0].legend(loc="upper right")
 
-    fig.suptitle("Figure E — Phenotype stance-distance trajectories", y=0.99)
+    fig.suptitle(f"Figure E — {group_label} stance-distance trajectories", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
@@ -216,6 +218,7 @@ def plot_phenotype_action_dynamics(
     action_dynamics_summary,
     out_path: Path,
     subtitle: str,
+    group_label: str = "Phenotype",
 ) -> None:
     phenotypes = ordered_phenotypes(action_dynamics_summary["phenotype"].tolist())
     rolling_window = int(action_dynamics_summary["rolling_window"].iloc[0])
@@ -275,7 +278,7 @@ def plot_phenotype_action_dynamics(
     axes[-1].set_xlabel("Step ID")
     axes[0].legend(loc="upper right")
 
-    fig.suptitle("Figure F — Phenotype action dynamics", y=0.99)
+    fig.suptitle(f"Figure F — {group_label} action dynamics", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
@@ -288,6 +291,7 @@ def plot_phenotype_lockin_outcomes(
     lockin_outcomes,
     out_path: Path,
     subtitle: str,
+    group_label: str = "Phenotype",
 ) -> None:
     phenotypes = ordered_phenotypes(lockin_outcomes["phenotype"].tolist())
     phenotype_labels = [phenotype.capitalize() for phenotype in phenotypes]
@@ -362,7 +366,7 @@ def plot_phenotype_lockin_outcomes(
                 fontsize=8,
             )
 
-    fig.suptitle("Figure G — Phenotype lock-in outcome comparison", y=0.985)
+    fig.suptitle(f"Figure G — {group_label} lock-in outcome comparison", y=0.985)
     add_figure_subtitle(fig, subtitle, y=0.94)
 
     fig.tight_layout(rect=(0, 0, 1, 0.86))
@@ -376,6 +380,7 @@ def plot_phenotype_lockin_timeline(
     episode_rows,
     out_path: Path,
     subtitle: str,
+    group_label: str = "Phenotype",
 ) -> None:
     phenotypes = ordered_phenotypes(lockin_summary["phenotype"].tolist())
 
@@ -447,7 +452,7 @@ def plot_phenotype_lockin_timeline(
     if used_episode_label or used_onset_label:
         axes[0].legend(loc="upper right")
 
-    fig.suptitle("Supplementary — Phenotype lock-in timeline", y=0.99)
+    fig.suptitle(f"Supplementary — {group_label} lock-in timeline", y=0.99)
     add_figure_subtitle(fig, subtitle, y=0.955)
 
     fig.tight_layout(rect=(0, 0, 1, 0.94))
@@ -473,6 +478,7 @@ def plot_multi_agent_figures(run_dir: Path) -> Path | None:
     )
 
     trajectory_smoothing_window = _resolve_trajectory_smoothing_window(params.persistence_window)
+    group_label = cohort_group_label(run_dir)
 
     seed_traces = build_phenotype_seed_trajectories(run_dir)
     trajectory_summary = build_phenotype_trajectory_summary(run_dir)
@@ -487,22 +493,26 @@ def plot_multi_agent_figures(run_dir: Path) -> Path | None:
         threshold=params.threshold,
         subtitle=subtitle,
         smoothing_window=trajectory_smoothing_window,
+        group_label=group_label,
     )
     plot_phenotype_action_dynamics(
         action_dynamics_summary=action_dynamics_summary,
         out_path=out_dir / "figure_f_phenotype_action_dynamics.png",
         subtitle=subtitle,
+        group_label=group_label,
     )
     plot_phenotype_lockin_outcomes(
         lockin_outcomes=lockin_outcomes,
         out_path=out_dir / "figure_g_phenotype_lockin_outcomes.png",
         subtitle=subtitle,
+        group_label=group_label,
     )
     plot_phenotype_lockin_timeline(
         lockin_summary=lockin_summary,
         episode_rows=episode_rows,
         out_path=out_dir / "figure_g_sup_phenotype_lockin_timeline.png",
         subtitle=subtitle,
+        group_label=group_label,
     )
 
     write_phenotype_lockin_summary_csv(run_dir)

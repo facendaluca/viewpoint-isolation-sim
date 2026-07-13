@@ -4,6 +4,11 @@ import heapq
 from dataclasses import dataclass
 
 from fyp_sim.models import User, UserAction, UserPhenotype, Video
+from fyp_sim.policy import (
+    INTEREST_BRACKET_THRESHOLD,
+    SAMPLER_WATCH_THRESHOLD,
+    WATCHER_SAMPLE_FLOOR,
+)
 from fyp_sim.simulation import engine as base_engine
 
 
@@ -29,22 +34,30 @@ def _interest_score_once(user: User, v: Video) -> float:
 def _decide_action_from_interest(
     *, phenotype: UserPhenotype, sentiment_threshold: float, video_sentiment: float, interest: float
 ) -> UserAction:
-    """Semantics-equivalent to policy.decide_action, but uses precomputed interest."""
+    """Semantics-equivalent to policy.predicted_action, but uses precomputed interest.
+
+    Only ranking uses this, so it mirrors the platform's engagement estimate,
+    not the user's realised decide_action.
+    """
     if video_sentiment < sentiment_threshold:
         return UserAction.AVOID
 
-    if phenotype == UserPhenotype.WATCHER:
-        return UserAction.WATCH if interest >= 0.5 else UserAction.SAMPLE
-
-    if phenotype == UserPhenotype.SAMPLER:
-        if interest >= 0.6:
+    if phenotype is UserPhenotype.WATCHER:
+        if interest >= INTEREST_BRACKET_THRESHOLD:
             return UserAction.WATCH
-        if interest >= 0.2:
+        if interest >= WATCHER_SAMPLE_FLOOR:
             return UserAction.SAMPLE
         return UserAction.AVOID
 
+    if phenotype is UserPhenotype.SAMPLER:
+        if interest >= SAMPLER_WATCH_THRESHOLD:
+            return UserAction.WATCH
+        return UserAction.SAMPLE
+
     # AVOIDER
-    return UserAction.SAMPLE if interest >= 0.8 else UserAction.AVOID
+    if interest >= INTEREST_BRACKET_THRESHOLD:
+        return UserAction.WATCH
+    return UserAction.AVOID
 
 
 def _engagement_proxy(action: UserAction, *, duration_s: int, max_duration: int) -> float:
@@ -126,12 +139,14 @@ def run_simulation_opt(
     video_pool: list[base_engine.Video],
     steps: int,
     rng,
+    engagement_rng=None,
     top_k: int = 3,
     rank_alpha: float | None = None,
     drift_alpha: float | None = None,
     alpha: float | None = None,
     watch_time_fn=base_engine.watch_time_seconds,
     decider: base_engine.ActionDecider | None = None,
+    llm_rerank: bool = False,
     enable_interest_updates: bool = False,
     interest_topic_alpha: float = 0.10,
     interest_tag_alpha: float = 0.05,
@@ -154,6 +169,7 @@ def run_simulation_opt(
         video_pool=video_pool,
         steps=steps,
         rng=rng,
+        engagement_rng=engagement_rng,
         top_k=top_k,
         rank_alpha=rank_alpha,
         drift_alpha=drift_alpha,
@@ -161,6 +177,7 @@ def run_simulation_opt(
         chooser=chooser,
         watch_time_fn=watch_time_fn,
         decider=decider,
+        llm_rerank=llm_rerank,
         enable_interest_updates=enable_interest_updates,
         interest_topic_alpha=interest_topic_alpha,
         interest_tag_alpha=interest_tag_alpha,

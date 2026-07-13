@@ -6,16 +6,31 @@ import hashlib
 import inspect
 import json
 import random
+import time
 from pathlib import Path
 from typing import Any
 
-from fyp_sim.agents import HeuristicDecider, LLMDecider
+from fyp_sim.agents import (
+    HeuristicDecider,
+    LLMDecider,
+    llm_diagnostics_delta,
+    llm_diagnostics_snapshot,
+)
 from fyp_sim.agents.clients import OpenAICompatClient
 from fyp_sim.analysis import summarise_logs
-from fyp_sim.artefacts import _fail_fast_old_alpha
+from fyp_sim.artefacts import _fail_fast_old_alpha, create_run_artefacts
+from fyp_sim.candidate_trace import (
+    CandidateTraceCollector,
+    matched_policy_diagnostics,
+    write_candidate_trace_csv,
+)
 from fyp_sim.cli import run_cli
+from fyp_sim.config_validation import validate_experiment_config
+from fyp_sim.corpus import build_corpus
+from fyp_sim.llm.request_seed import REQUEST_SEED_SCHEMA_VERSION
 from fyp_sim.models import User, UserPhenotype, Video
 from fyp_sim.plotting import make_compare_plot
+from fyp_sim.runtime_overrides import apply_runtime_overrides
 from fyp_sim.simulation.engine import run_simulation
 
 # -------------------------------
@@ -119,6 +134,17 @@ _LOG_HEADERS = [
     "interest",
     "vii_t",
     "vii_cum",
+    "topic_interest",
+    "interest_pre",
+    "interest_post",
+    "topic_interest_pre",
+    "topic_interest_post",
+    "interest_state_hash_pre",
+    "interest_state_hash_post",
+    "interest_keys",
+    "user_viewpoint_pre",
+    "user_viewpoint_post",
+    "video_viewpoint_score",
     # optional LLM/policy metadata
     "policy_mode",
     "llm_prompt_id",
@@ -126,6 +152,14 @@ _LOG_HEADERS = [
     "llm_fallback_reason",
     "llm_action",
     "llm_confidence",
+    "llm_prompt_tokens",
+    "llm_completion_tokens",
+    "llm_total_tokens",
+    "llm_token_count_estimated",
+    "llm_request_seed",
+    "llm_call_role",
+    "llm_prompt_sha256",
+    "llm_response_sha256",
 ]
 
 
@@ -145,6 +179,19 @@ def write_step_logs_csv(path: Path, logs: list[Any]) -> None:
                 "interest": _fmt_float(getattr(r, "interest", None)),
                 "vii_t": _fmt_float(getattr(r, "vii_t", None)),
                 "vii_cum": _fmt_float(getattr(r, "vii_cum", None)),
+                "topic_interest": _fmt_float(getattr(r, "topic_interest", None)),
+                "interest_pre": _fmt_float(getattr(r, "interest_pre", None)),
+                "interest_post": _fmt_float(getattr(r, "interest_post", None)),
+                "topic_interest_pre": _fmt_float(getattr(r, "topic_interest_pre", None)),
+                "topic_interest_post": _fmt_float(getattr(r, "topic_interest_post", None)),
+                "interest_state_hash_pre": getattr(r, "interest_state_hash_pre", ""),
+                "interest_state_hash_post": getattr(r, "interest_state_hash_post", ""),
+                "interest_keys": getattr(r, "interest_keys", ""),
+                "user_viewpoint_pre": _fmt_float(getattr(r, "user_viewpoint_pre", None)),
+                "user_viewpoint_post": _fmt_float(getattr(r, "user_viewpoint_post", None)),
+                "video_viewpoint_score": _fmt_float(
+                    getattr(r, "video_viewpoint_score", None)
+                ),
                 "policy_mode": getattr(r, "policy_mode", ""),
                 # LLM-only columns: blank unless policy_mode == "llm"
                 "llm_prompt_id": getattr(r, "llm_prompt_id", "") if is_llm else "",
@@ -152,6 +199,22 @@ def write_step_logs_csv(path: Path, logs: list[Any]) -> None:
                 "llm_fallback_reason": getattr(r, "llm_fallback_reason", "") if is_llm else "",
                 "llm_action": getattr(r, "llm_action", "") if is_llm else "",
                 "llm_confidence": getattr(r, "llm_confidence", None) if is_llm else "",
+                "llm_prompt_tokens": getattr(r, "llm_prompt_tokens", 0) if is_llm else "",
+                "llm_completion_tokens": (
+                    getattr(r, "llm_completion_tokens", 0) if is_llm else ""
+                ),
+                "llm_total_tokens": getattr(r, "llm_total_tokens", 0) if is_llm else "",
+                "llm_token_count_estimated": (
+                    getattr(r, "llm_token_count_estimated", False) if is_llm else ""
+                ),
+                "llm_request_seed": (
+                    getattr(r, "llm_request_seed", None)
+                    if is_llm and getattr(r, "llm_request_seed", None) is not None
+                    else ""
+                ),
+                "llm_call_role": getattr(r, "llm_call_role", "") if is_llm else "",
+                "llm_prompt_sha256": getattr(r, "llm_prompt_sha256", "") if is_llm else "",
+                "llm_response_sha256": getattr(r, "llm_response_sha256", "") if is_llm else "",
             }
             w.writerow(row)
 
@@ -165,6 +228,50 @@ def _fmt_float(x: float | None) -> str:
         return str(x)
 
 
+def compare_seed_logs(heuristic_logs: list[Any], llm_logs: list[Any]) -> dict[str, int | float]:
+    """Unpaired architecture-level comparison of the two closed-loop arms.
+
+    Rows are zipped by timestep, but reranking and feedback make each arm choose
+    different videos and mutate different user states, so almost no pair shares a
+    pre-action context. `unpaired_action_difference_rate` therefore measures how far
+    the two closed-loop trajectories diverge, NOT how often the two policies disagree
+    on the same decision. The paired policy comparison lives in the candidate-level
+    matched trace (matched_policy_diagnostics.json).
+    """
+    paired = list(zip(heuristic_logs, llm_logs, strict=False))
+    aligned_steps = len(paired)
+    action_difference_steps = sum(h.action != llm.action for h, llm in paired)
+    same_video_steps = sum(h.video_id == llm.video_id for h, llm in paired)
+    same_video_action_difference_steps = sum(
+        h.video_id == llm.video_id and h.action != llm.action for h, llm in paired
+    )
+    same_context_steps = sum(
+        h.video_id == llm.video_id
+        and h.interest_state_hash_pre == llm.interest_state_hash_pre
+        and h.user_viewpoint_pre == llm.user_viewpoint_pre
+        for h, llm in paired
+    )
+    same_context_action_difference_steps = sum(
+        h.video_id == llm.video_id
+        and h.interest_state_hash_pre == llm.interest_state_hash_pre
+        and h.user_viewpoint_pre == llm.user_viewpoint_pre
+        and h.action != llm.action
+        for h, llm in paired
+    )
+    return {
+        "aligned_steps": aligned_steps,
+        "unpaired_action_difference_steps": action_difference_steps,
+        "unpaired_action_difference_rate": (
+            action_difference_steps / aligned_steps if aligned_steps else 0.0
+        ),
+        "same_video_steps": same_video_steps,
+        "same_video_rate": same_video_steps / aligned_steps if aligned_steps else 0.0,
+        "same_video_action_difference_steps": same_video_action_difference_steps,
+        "same_context_steps": same_context_steps,
+        "same_context_action_difference_steps": same_context_action_difference_steps,
+    }
+
+
 def _run_simulation_compat(
     *,
     user: User,
@@ -176,6 +283,10 @@ def _run_simulation_compat(
     drift_alpha: float,
     enable_viewpoint_drift: bool,
     decider: Any,
+    engagement_rng: random.Random | None = None,
+    llm_rerank: bool = False,
+    interest_kwargs: dict[str, Any] | None = None,
+    candidate_trace: Any | None = None,
 ) -> list[Any]:
     """
     Calls run_simulation and returns only the logs.
@@ -193,6 +304,14 @@ def _run_simulation_compat(
     )
     if "decider" in sig.parameters:
         kwargs["decider"] = decider
+    if "engagement_rng" in sig.parameters:
+        kwargs["engagement_rng"] = engagement_rng
+    if "llm_rerank" in sig.parameters:
+        kwargs["llm_rerank"] = llm_rerank
+    if interest_kwargs and "enable_interest_updates" in sig.parameters:
+        kwargs.update(interest_kwargs)
+    if "candidate_trace" in sig.parameters:
+        kwargs["candidate_trace"] = candidate_trace
     return run_simulation(**kwargs)
 
 
@@ -209,13 +328,27 @@ def build_llm_decider(cfg: dict[str, Any]) -> Any:
     if not model:
         raise ValueError("policy.llm.model is required to run the LLM baseline")
 
-    client = OpenAICompatClient(
-        base_url=str(llm_cfg.get("base_url", "http://localhost:1234/v1")),
-        model=str(model),
-        api_key=llm_cfg.get("api_key"),
-        temperature=float(llm_cfg.get("temperature", 0.0)),
-        max_tokens=llm_cfg.get("max_tokens"),
-    )
+    client_kwargs: dict[str, Any] = {
+        "base_url": str(llm_cfg.get("base_url", "http://100.127.102.30:1234/v1")),
+        "model": str(model),
+        "api_key": llm_cfg.get("api_key"),
+        "temperature": float(llm_cfg.get("temperature", 0.0)),
+        "max_tokens": llm_cfg.get("max_tokens"),
+    }
+    # Optional sampling controls are forwarded only when the config pins them,
+    # so existing configs keep byte-identical request bodies (plus the seed).
+    for name in (
+        "top_p",
+        "top_k",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+        "frequency_penalty",
+        "stop",
+    ):
+        if name in llm_cfg:
+            client_kwargs[name] = llm_cfg[name]
+    client = OpenAICompatClient(**client_kwargs)
 
     # only pass kwargs that exist in the LLMDecider constructor
     llm_kwargs: dict[str, Any] = {
@@ -242,11 +375,28 @@ def main() -> None:
     )
     p.add_argument("--config", type=Path, default=Path("configs/experiment_baseline.json"))
     p.add_argument("--out", type=Path, default=Path("outputs/compare"))
+    p.add_argument("--steps", type=int, default=None, help="Temporary runtime step override.")
+    p.add_argument("--seeds", type=int, nargs="+", default=None, help="Temporary seed list.")
+    p.add_argument(
+        "--candidate-trace",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Record the candidate-level matched-context trace during LLM rerank "
+            "(passive; adds zero LLM calls and changes no results)."
+        ),
+    )
 
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    cfg, runtime_overrides = apply_runtime_overrides(cfg, steps=args.steps, seeds=args.seeds)
+    if runtime_overrides:
+        print(f"[runtime overrides] {json.dumps(runtime_overrides, sort_keys=True)}")
     _fail_fast_old_alpha(cfg, args.config)
+    config_audit = validate_experiment_config(cfg, runner="compare", cfg_path=args.config)
+    for warning in config_audit.warnings:
+        print(f"[config warning] {warning}")
 
     steps = int(cfg["steps"])
     top_k = int(cfg["top_k"])
@@ -256,11 +406,34 @@ def main() -> None:
     lock_in_threshold = float(cfg["lock_in_threshold"])
     persistence_window = int(cfg["persistence_window"])
     seeds = [int(x) for x in cfg["seeds"]]
+    separate_rng_streams = bool(cfg["separate_rng_streams"])
+
+    # Interest/state updates: honoured from config (same keys as run_batch),
+    # so LLM actions can shape future recommendations when enabled.
+    enable_interest_updates = bool(cfg.get("enable_interest_updates", False))
+    interest_kwargs = {
+        "enable_interest_updates": enable_interest_updates,
+        "interest_topic_alpha": float(cfg.get("interest_topic_alpha", 0.10)),
+        "interest_tag_alpha": float(cfg.get("interest_tag_alpha", 0.05)),
+        "interest_decay": float(cfg.get("interest_decay", 0.02)),
+        "interest_normalise": bool(cfg.get("interest_normalise", False)),
+        "interest_prune_below": float(cfg.get("interest_prune_below", 0.001)),
+    }
+
+    # LLM-in-loop: rerank the top_k slate with the LLM (LLM arm only).
+    llm_cfg = (cfg.get("policy") or {}).get("llm") or {}
+    rerank_slate = bool(llm_cfg.get("rerank_slate", False))
+    # The matched-context trace only exists on the rerank path (that is where the
+    # per-candidate LLM calls happen), so it is silently off otherwise.
+    candidate_trace_enabled = bool(args.candidate_trace) and rerank_slate
 
     print(
         f"[run_compare] config={args.config} "
         f"steps={steps} top_k={top_k} rank_alpha={rank_alpha} drift_alpha={drift_alpha} "
         f"enable_viewpoint_drift={enable_viewpoint_drift} "
+        f"enable_interest_updates={enable_interest_updates} rerank_slate={rerank_slate} "
+        f"candidate_trace={candidate_trace_enabled} "
+        f"separate_rng_streams={separate_rng_streams} "
         f"lock_in_threshold={lock_in_threshold} persistence_window={persistence_window} "
         f"seeds={seeds}"
     )
@@ -271,28 +444,20 @@ def main() -> None:
             f"in {args.config}"
         )
 
-    pool = build_video_pool(cfg)
+    pool = build_corpus(cfg)
 
     cfg_h = config_hash(cfg, n=10)
-    run_id = f"compare__{cfg_h}"
-    run_dir = args.out / run_id
-
-    # Save a snapshot (api_key removed, policy.mode normalised)
-    write_json(run_dir / "config.redacted.json", _normalise_cfg_for_hash(cfg))
-    write_json(
-        run_dir / "manifest.json",
-        {
-            "run_id": run_id,
-            "config_hash": cfg_h,
-            "config_path": str(args.config),
-            "seeds": seeds,
-            "steps": steps,
-            "top_k": top_k,
-            "rank_alpha": rank_alpha,
-            "drift_alpha": drift_alpha,
-            "enable_viewpoint_drift": enable_viewpoint_drift,
-        },
+    artefacts = create_run_artefacts(
+        cfg=_normalise_cfg_for_hash(cfg),
+        cfg_path=args.config,
+        mode="compare",
+        seeds=seeds,
+        outputs_root=args.out,
+        corpus=pool,
+        runner="src.scripts.run_compare",
     )
+    run_id = artefacts.run_id
+    run_dir = artefacts.root_dir
 
     deciders: dict[str, Any] = {
         "heuristic": HeuristicDecider(),
@@ -300,13 +465,35 @@ def main() -> None:
     }
 
     rows: list[dict[str, Any]] = []
+    logs_by_agent: dict[str, dict[int, list[Any]]] = {"heuristic": {}, "llm": {}}
+    trace_rows_by_seed: dict[int, list[Any]] = {}
+    llm_calls_by_seed: dict[int, int] = {}
+    run_started = time.perf_counter()
 
     for agent_name, decider in deciders.items():
         for seed in seeds:
             rng = random.Random(seed)
+            # Separate stream for watch-time draws: otherwise arms that act
+            # differently consume different amounts of shared randomness and
+            # exposure diverges for accidental reasons.
+            engagement_rng = (
+                random.Random(f"{seed}:engagement") if separate_rng_streams else None
+            )
             # Fresh user per (agent, seed): drift/interest updates mutate state,
             # so a shared instance would leak state across runs and break fairness.
             user = build_user(cfg)
+            # Run-scoped request-seed identity for this arm's decider (no-op for
+            # the heuristic arm). Compare runs are single-user by construction.
+            context_setter = getattr(decider, "set_request_context", None)
+            if callable(context_setter):
+                context_setter(experiment_seed=seed, agent_id="user", stream="decision")
+            collector = (
+                CandidateTraceCollector(seed=seed)
+                if candidate_trace_enabled and agent_name == "llm"
+                else None
+            )
+            diagnostics_before = llm_diagnostics_snapshot(decider)
+            seed_started = time.perf_counter()
             logs = _run_simulation_compat(
                 user=user,
                 video_pool=pool,
@@ -317,7 +504,24 @@ def main() -> None:
                 drift_alpha=drift_alpha,
                 enable_viewpoint_drift=enable_viewpoint_drift,
                 decider=decider,
+                engagement_rng=engagement_rng,
+                llm_rerank=(agent_name == "llm" and rerank_slate),
+                interest_kwargs=interest_kwargs,
+                candidate_trace=collector,
             )
+            seed_runtime_s = time.perf_counter() - seed_started
+            diagnostics = llm_diagnostics_delta(
+                diagnostics_before, llm_diagnostics_snapshot(decider)
+            )
+            logs_by_agent[agent_name][seed] = logs
+            if agent_name == "llm":
+                llm_calls_by_seed[seed] = int(diagnostics["llm_call_count"])
+            if collector is not None:
+                write_candidate_trace_csv(
+                    run_dir / "candidate_trace" / f"candidate_trace_seed_{seed}.csv",
+                    collector.rows,
+                )
+                trace_rows_by_seed[seed] = collector.rows
 
             # Per-run logs (generated artifacts)
             log_path = run_dir / "logs" / agent_name / f"run_seed_{seed}.csv"
@@ -341,6 +545,23 @@ def main() -> None:
                     "drift_alpha": drift_alpha,
                     "lock_in_threshold": lock_in_threshold,
                     "persistence_window": persistence_window,
+                    "runtime_s": seed_runtime_s,
+                    "llm_expected_call_count": (
+                        steps * min(top_k, len(pool)) if agent_name == "llm" and rerank_slate else steps
+                    )
+                    if agent_name == "llm"
+                    else 0,
+                    **diagnostics,
+                    "llm_valid_rate": (
+                        diagnostics["llm_valid_count"] / diagnostics["llm_call_count"]
+                        if diagnostics["llm_call_count"]
+                        else 0.0
+                    ),
+                    "llm_fallback_rate": (
+                        diagnostics["llm_fallback_count"] / diagnostics["llm_call_count"]
+                        if diagnostics["llm_call_count"]
+                        else 0.0
+                    ),
                     **s,
                 }
             )
@@ -353,6 +574,123 @@ def main() -> None:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(rows)
+
+    llm_rows = [row for row in rows if row["agent"] == "llm"]
+    count_keys = [
+        "llm_expected_call_count",
+        "llm_call_count",
+        "llm_valid_count",
+        "llm_fallback_count",
+        "llm_retry_count",
+        "llm_prompt_tokens",
+        "llm_completion_tokens",
+        "llm_total_tokens",
+        "llm_token_estimated_calls",
+        "llm_fallback_no_client",
+        "llm_fallback_timeout",
+        "llm_fallback_client_error",
+        "llm_fallback_invalid_output",
+        "llm_seeded_request_count",
+        "llm_seed_collision_count",
+    ]
+    llm_totals = {key: sum(int(row[key]) for row in llm_rows) for key in count_keys}
+    llm_calls = llm_totals["llm_call_count"]
+    llm_client = getattr(deciders.get("llm"), "client", None)
+    llm_diagnostics = {
+        **llm_totals,
+        "llm_valid_rate": llm_totals["llm_valid_count"] / llm_calls if llm_calls else 0.0,
+        "llm_fallback_rate": llm_totals["llm_fallback_count"] / llm_calls if llm_calls else 0.0,
+        "llm_prompt_id": str(llm_cfg.get("prompt_id", "decision_v1")),
+        "llm_model": str(llm_cfg.get("model", "")),
+        "llm_rerank_slate": rerank_slate,
+        "token_usage_source": (
+            "provider"
+            if llm_totals["llm_token_estimated_calls"] == 0
+            else "mixed_or_character_estimate"
+        ),
+        # Request-seed provenance: the derivation schema plus the complete
+        # sampling configuration the client actually transmitted (parameters
+        # the config left unset are marked server_default, not guessed).
+        "request_seed_schema_version": REQUEST_SEED_SCHEMA_VERSION,
+        "llm_api_type": "openai_chat_completions",
+        "llm_effective_sampling": (
+            llm_client.effective_sampling()
+            if llm_client is not None and hasattr(llm_client, "effective_sampling")
+            else None
+        ),
+        "llm_response_model": getattr(llm_client, "last_response_model", None),
+    }
+    write_json(run_dir / "llm_diagnostics.json", llm_diagnostics)
+
+    per_seed_comparison = []
+    for seed in seeds:
+        per_seed_comparison.append(
+            {
+                "seed": seed,
+                **compare_seed_logs(logs_by_agent["heuristic"][seed], logs_by_agent["llm"][seed]),
+            }
+        )
+    aggregate_count_keys = [
+        "aligned_steps",
+        "unpaired_action_difference_steps",
+        "same_video_steps",
+        "same_video_action_difference_steps",
+        "same_context_steps",
+        "same_context_action_difference_steps",
+    ]
+    aggregate = {
+        key: sum(int(row[key]) for row in per_seed_comparison) for key in aggregate_count_keys
+    }
+    aligned_steps = aggregate["aligned_steps"]
+    aggregate["unpaired_action_difference_rate"] = (
+        aggregate["unpaired_action_difference_steps"] / aligned_steps if aligned_steps else 0.0
+    )
+    aggregate["same_video_rate"] = (
+        aggregate["same_video_steps"] / aligned_steps if aligned_steps else 0.0
+    )
+    write_json(
+        run_dir / "comparison_diagnostics.json",
+        {
+            "comparison_type": "unpaired_architecture_divergence",
+            "note": (
+                "Arms are zipped by timestep across independently evolving closed-loop "
+                "trajectories, so rows are not matched contexts. "
+                "unpaired_action_difference_rate is architecture-level trajectory "
+                "divergence, not a matched policy disagreement rate; the paired "
+                "comparison lives in matched_policy_diagnostics.json."
+            ),
+            "per_seed": per_seed_comparison,
+            "aggregate": aggregate,
+        },
+    )
+
+    if candidate_trace_enabled:
+        write_json(
+            run_dir / "matched_policy_diagnostics.json",
+            matched_policy_diagnostics(trace_rows_by_seed, llm_calls_by_seed),
+        )
+
+    total_runtime_s = time.perf_counter() - run_started
+    manifest = json.loads(artefacts.manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "config_hash_short": cfg_h,
+            "config_warnings": list(config_audit.warnings),
+            "runtime_s": total_runtime_s,
+            "enable_viewpoint_drift": enable_viewpoint_drift,
+            "enable_interest_updates": enable_interest_updates,
+            "rerank_slate": rerank_slate,
+            "separate_rng_streams": separate_rng_streams,
+            "candidate_trace_enabled": candidate_trace_enabled,
+            "llm_diagnostics_path": "llm_diagnostics.json",
+            "comparison_diagnostics_path": "comparison_diagnostics.json",
+            "runtime_overrides": runtime_overrides,
+        }
+    )
+    if candidate_trace_enabled:
+        manifest["matched_policy_diagnostics_path"] = "matched_policy_diagnostics.json"
+        manifest["candidate_trace_dir"] = "candidate_trace"
+    write_json(artefacts.manifest_path, manifest)
 
     print(f"Wrote compare run to: {run_dir}")
     print(f"- logs: {run_dir / 'logs'}")

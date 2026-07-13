@@ -9,6 +9,7 @@
 
   "enable_viewpoint_drift": true,
   "drift_alpha": 0.02,
+  "separate_rng_streams": true,
 
   "lock_in_threshold": 0.20,
   "persistence_window": 10,
@@ -20,15 +21,25 @@
   "interest_normalise": false,
   "interest_prune_below": 0.001,
 
-  "seeds": [0, 1, 2, 3, 4],
+  "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
 
-  "n_agents": 2,
+  "n_agents": 3,
   "agents": [
     {
       "agent_id": "strict",
       "phenotype": "watcher",
       "viewpoint_score": 0.40,
       "sentiment_threshold": 0.50,
+      "interest_vector": {
+        "politics": 0.25, "sports": 0.20, "health_wellness": 0.30, "comedy_memes": 0.75,
+        "meme": 0.90, "news": 0.55, "football": 0.40, "sleep": 0.35, "viral": 0.60, "tech": 0.25
+      }
+    },
+    {
+      "agent_id": "baseline",
+      "phenotype": "watcher",
+      "viewpoint_score": 0.40,
+      "sentiment_threshold": -0.20,
       "interest_vector": {
         "politics": 0.25, "sports": 0.20, "health_wellness": 0.30, "comedy_memes": 0.75,
         "meme": 0.90, "news": 0.55, "football": 0.40, "sleep": 0.35, "viral": 0.60, "tech": 0.25

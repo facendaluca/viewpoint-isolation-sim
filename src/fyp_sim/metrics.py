@@ -1,8 +1,14 @@
 """
 Metrics for viewpoint exposure.
 
-- VII_t: per-step viewpoint distance between user stance and consumed content stance.
+- VII_t: per-step viewpoint distance between user stance and the SERVED video's stance.
 - VII_cum: running mean of VII_t over time (online update for efficiency and streaming logs).
+
+VII is an exposure-distance metric, not a consumption metric: the engine computes
+VII_t for every served item regardless of whether the user then Watches, Samples,
+or Avoids it, and no engagement weighting is applied. Lock-in metrics built on this
+series (analysis.compute_lock_in_metrics) therefore describe the composition of
+what was served, not completed consumption and not attitude change.
 """
 
 from __future__ import annotations

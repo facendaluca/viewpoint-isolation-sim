@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,34 @@ def has_multi_agent_run(run_dir: Path) -> bool:
 
     phenotypes = df["agent_id"].map(_normalise_phenotype).dropna().unique()
     return len(phenotypes) > 1
+
+
+def cohort_group_label(run_dir: Path) -> str:
+    """Work out what the cohort's panels actually represent, from the run's own config.
+
+    The multi-agent figures group run logs by agent label. Calling every such
+    grouping a "phenotype" is wrong when the agents share one phenotype and the
+    arms differ by another field (E6's arms differ only by sentiment threshold),
+    so pick the noun from whichever agent field actually varies.
+    """
+    config_path = run_dir / "config_resolved.json"
+    if not config_path.exists():
+        return "Phenotype"
+
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    agents = cfg.get("agents") or []
+    if len(agents) < 2:
+        return "Phenotype"
+
+    phenotypes = {_normalise_phenotype(agent.get("phenotype")) for agent in agents}
+    if len(phenotypes) > 1:
+        return "Phenotype"
+
+    sentiment_thresholds = {agent.get("sentiment_threshold") for agent in agents}
+    if len(sentiment_thresholds) > 1:
+        return "Sentiment-threshold arm"
+
+    return "Cohort arm"
 
 
 def build_phenotype_seed_trajectories(run_dir: Path) -> pd.DataFrame:

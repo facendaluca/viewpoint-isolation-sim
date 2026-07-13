@@ -4,9 +4,11 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
-from fyp_sim.artefacts import create_run_artefacts
+from fyp_sim.artefacts import create_run_artefacts, runtime_provenance
 from fyp_sim.models import Video
+from fyp_sim.policy import POLICY_CONTRACT
 
 
 def test_create_run_artefacrs_creates_expected_structure(tmp_path: Path) -> None:
@@ -101,3 +103,99 @@ def test_create_run_artefacts_writes_corpus_and_hash(tmp_path: Path) -> None:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     assert manifest["corpus"]["hash"] == expected
+
+
+def test_create_run_artefacts_isolates_same_second_same_config(tmp_path: Path, monkeypatch) -> None:
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(
+        "fyp_sim.artefacts._utc_now", lambda: datetime(2026, 7, 10, 11, 30, 0, tzinfo=UTC)
+    )
+    cfg = {
+        "steps": 10,
+        "top_k": 3,
+        "rank_alpha": 0.3,
+        "lock_in_threshold": 0.2,
+        "persistence_window": 10,
+    }
+
+    first = create_run_artefacts(
+        cfg=cfg, cfg_path=None, mode="baseline", seeds=[0], outputs_root=tmp_path
+    )
+    second = create_run_artefacts(
+        cfg=cfg, cfg_path=None, mode="baseline", seeds=[0], outputs_root=tmp_path
+    )
+
+    assert first.root_dir != second.root_dir
+    assert second.run_id.endswith("_01")
+    second_manifest = json.loads(second.manifest_path.read_text(encoding="utf-8"))
+    assert second_manifest["collision_index"] == 1
+
+
+def test_manifest_records_run_provenance(tmp_path: Path) -> None:
+    cfg = {"steps": 5, "top_k": 2, "rank_alpha": 0.3}
+    artefacts = create_run_artefacts(
+        cfg=cfg, cfg_path=None, mode="baseline", seeds=[0], outputs_root=tmp_path
+    )
+    manifest = json.loads(artefacts.manifest_path.read_text(encoding="utf-8"))
+
+    provenance = manifest["provenance"]
+    assert provenance["policy_contract"] == POLICY_CONTRACT
+    commit = provenance["git_commit"]
+    assert commit is None or re.fullmatch(r"[0-9a-f]{40}", commit)
+    assert provenance["git_dirty"] in (True, False, None)
+
+    # Provenance must not leak into the config hash or the run naming.
+    canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    assert manifest["cfg_hash"] == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    assert re.match(r"^\d{6}Z_[a-z]+_[0-9a-f]{8}$", artefacts.run_id)
+
+
+def test_provenance_reports_commit_and_dirty_worktree(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        if "rev-parse" in cmd:
+            return SimpleNamespace(returncode=0, stdout="a" * 40 + "\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout=" M src/fyp_sim/policy.py\n", stderr="")
+
+    monkeypatch.setattr("fyp_sim.artefacts.subprocess.run", fake_run)
+    assert runtime_provenance() == {
+        "git_commit": "a" * 40,
+        "git_dirty": True,
+        "policy_contract": POLICY_CONTRACT,
+    }
+
+
+def test_provenance_reports_clean_worktree(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        if "rev-parse" in cmd:
+            return SimpleNamespace(returncode=0, stdout="b" * 40 + "\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("fyp_sim.artefacts.subprocess.run", fake_run)
+    provenance = runtime_provenance()
+    assert provenance["git_commit"] == "b" * 40
+    assert provenance["git_dirty"] is False
+
+
+def test_provenance_degrades_gracefully_outside_git(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        return SimpleNamespace(returncode=128, stdout="", stderr="fatal: not a git repository")
+
+    monkeypatch.setattr("fyp_sim.artefacts.subprocess.run", fake_run)
+    assert runtime_provenance() == {
+        "git_commit": None,
+        "git_dirty": None,
+        "policy_contract": POLICY_CONTRACT,
+    }
+
+
+def test_provenance_degrades_gracefully_without_git_binary(monkeypatch) -> None:
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError("git is not installed")
+
+    monkeypatch.setattr("fyp_sim.artefacts.subprocess.run", fake_run)
+    assert runtime_provenance() == {
+        "git_commit": None,
+        "git_dirty": None,
+        "policy_contract": POLICY_CONTRACT,
+    }

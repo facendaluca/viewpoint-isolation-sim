@@ -8,10 +8,20 @@ from fyp_sim.models import User, UserPhenotype, Video
 
 def test_avoider_is_zero_seconds():
     rng = random.Random(0)
-    u = User(UserPhenotype.AVOIDER, 0.5, {"politics": 0.7}, -0.2)
+    # Interest must sit below the bracket here: an avoider at 0.7 would watch now
+    u = User(UserPhenotype.AVOIDER, 0.5, {"politics": 0.3}, -0.2)
     v = Video(1, "politics", 0.6, 0.0, 25)
 
     assert watch_time_seconds(u, v, rng) == 0
+
+
+def test_avoider_watches_inside_bracket():
+    rng = random.Random(0)
+    u = User(UserPhenotype.AVOIDER, 0.5, {"politics": 0.7}, -0.2)
+    v = Video(1, "politics", 0.6, 0.0, 25)
+
+    t = watch_time_seconds(u, v, rng)
+    assert int(0.70 * 25) <= t <= 25
 
 
 def test_sampler_samples_when_not_interested():

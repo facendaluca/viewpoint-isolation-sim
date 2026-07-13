@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from fyp_sim.agents.deciders import LLMClient, LLMDecider
+from fyp_sim.llm.prompting import load_prompt_template, render_decision_prompt
 from fyp_sim.models import User, UserAction, UserPhenotype, Video
 
 
@@ -56,6 +59,11 @@ def test_llm_valid_then_fallback_on_invalid_output():
     assert decider_valid.last_meta.policy_mode == "llm"
     assert decider_valid.last_meta.llm_action == "Watch"
     assert decider_valid.last_meta.llm_confidence == 0.9
+    valid_stats = decider_valid.diagnostics_snapshot()
+    assert valid_stats["llm_call_count"] == 1
+    assert valid_stats["llm_valid_count"] == 1
+    assert valid_stats["llm_fallback_count"] == 0
+    assert valid_stats["llm_token_estimated_calls"] == 1
 
     # 2) Invalid LLM output -> falls back
     invalid_client = FakeClient(output="not json at all")
@@ -68,3 +76,46 @@ def test_llm_valid_then_fallback_on_invalid_output():
     assert decider_invalid.decide_next_action(user, video) == UserAction.SAMPLE
     assert decider_invalid.last_meta.valid is False
     assert decider_invalid.last_meta.fallback_reason == "invalid_output"
+    invalid_stats = decider_invalid.diagnostics_snapshot()
+    assert invalid_stats["llm_call_count"] == 1
+    assert invalid_stats["llm_valid_count"] == 0
+    assert invalid_stats["llm_fallback_invalid_output"] == 1
+
+
+def test_decision_v3_2_prompt_renders() -> None:
+    user, video = _make_user_video()
+    prompt = render_decision_prompt("decision_v3.2", user=user, video=video)
+
+    assert "PROMPT_ID: decision_v3.2" in prompt
+    assert "phenotype: watcher" in prompt
+    assert "topic_category: sports" in prompt
+    assert "computed_interest_score: 0.8" in prompt
+    assert "{user." not in prompt
+    assert "{video." not in prompt
+    assert '{"action":"Sample","confidence":0.66' in prompt
+
+
+def test_decision_v4_prompt_renders() -> None:
+    user, video = _make_user_video()
+    prompt = render_decision_prompt("decision_v4", user=user, video=video)
+
+    assert "PROMPT_ID: decision_v4" in prompt
+    assert "phenotype: watcher" in prompt
+    assert "topic_category: sports" in prompt
+    assert "computed_interest_score: 0.8" in prompt
+    assert "{user." not in prompt
+    assert "{video." not in prompt
+    # The one behavioural change from v3.2: the watcher description states the
+    # established-taste theory the heuristic policy implements.
+    assert "settled, established taste" in prompt
+    assert "not to individual tags" in prompt
+
+
+def test_configured_llm_prompt_ids_exist() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    for path in sorted((repo_root / "configs").glob("**/*.json")):
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        llm_cfg = ((cfg.get("policy") or {}).get("llm") or {})
+        prompt_id = llm_cfg.get("prompt_id")
+        if prompt_id:
+            assert load_prompt_template(str(prompt_id))

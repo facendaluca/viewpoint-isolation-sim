@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fyp_sim.models import Video
+from fyp_sim.policy import POLICY_CONTRACT
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,51 @@ def _cfg_hash(cfg: dict[str, Any]) -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _git_provenance(anchor: Path) -> tuple[str | None, bool | None]:
+    """Best-effort (commit, dirty) of the git worktree containing `anchor`.
+
+    Returns (None, None) when git is missing, times out, or the path is not
+    inside a repository, so callers never fail on provenance collection.
+    """
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(anchor), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if head.returncode != 0 or not head.stdout.strip():
+            return None, None
+        status = subprocess.run(
+            ["git", "-C", str(anchor), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
+        return head.stdout.strip(), dirty
+    except (OSError, subprocess.SubprocessError):
+        return None, None
+
+
+def runtime_provenance() -> dict[str, Any]:
+    """Concise record of which source code produced an artefact.
+
+    cfg_hash cannot separate runs whose configs are identical but whose policy
+    semantics differ (the risk-01 watcher change), so manifests also record the
+    source commit, whether the worktree had uncommitted changes, and the policy
+    contract version. Output naming must never depend on these fields.
+    """
+    commit, dirty = _git_provenance(Path(__file__).resolve().parent)
+    return {
+        "git_commit": commit,
+        "git_dirty": dirty,
+        "policy_contract": POLICY_CONTRACT,
+    }
 
 
 def _corpus_payload(videos: list[Video]) -> list[dict[str, Any]]:
@@ -113,9 +160,19 @@ def create_run_artefacts(
     cfg_hash = _cfg_hash(cfg)
     hash8 = cfg_hash[:8]
 
-    run_id = f"{time_hms}Z_{mode}_{hash8}"
+    base_run_id = f"{time_hms}Z_{mode}_{hash8}"
+    date_dir = outputs_root / date_ymd
+    date_dir.mkdir(parents=True, exist_ok=True)
+    collision_index = 0
+    while True:
+        run_id = base_run_id if collision_index == 0 else f"{base_run_id}_{collision_index:02d}"
+        root_dir = date_dir / run_id
+        try:
+            root_dir.mkdir(exist_ok=False)
+            break
+        except FileExistsError:
+            collision_index += 1
 
-    root_dir = outputs_root / date_ymd / run_id
     seeds_dir = root_dir / "seeds"
     plots_dir = root_dir / "plots"
     manifest_path = root_dir / "manifest.json"
@@ -135,7 +192,20 @@ def create_run_artefacts(
         "interest_decay": cfg.get("interest_decay"),
         "interest_normalise": cfg.get("interest_normalise"),
         "interest_prune_below": cfg.get("interest_prune_below"),
+        "enable_viewpoint_drift": cfg.get("enable_viewpoint_drift"),
+        "separate_rng_streams": cfg.get("separate_rng_streams"),
+        "lock_in_threshold": cfg.get("lock_in_threshold"),
+        "persistence_window": cfg.get("persistence_window"),
+        "top_k_grid": cfg.get("top_k_grid"),
+        "rank_alpha_grid": cfg.get("rank_alpha_grid"),
     }
+
+    policy_cfg = cfg.get("policy", {}) or {}
+    llm_cfg = policy_cfg.get("llm", {}) or {}
+    key_params["policy_mode"] = policy_cfg.get("mode", "heuristic")
+    key_params["llm_model"] = llm_cfg.get("model")
+    key_params["llm_prompt_id"] = llm_cfg.get("prompt_id")
+    key_params["llm_rerank_slate"] = llm_cfg.get("rerank_slate")
 
     manifest: dict[str, Any] = {
         "run_id": run_id,
@@ -146,6 +216,8 @@ def create_run_artefacts(
         "cfg_hash": cfg_hash,
         "seeds": seeds,
         "key_params": key_params,
+        "collision_index": collision_index,
+        "provenance": runtime_provenance(),
     }
 
     if corpus is not None:

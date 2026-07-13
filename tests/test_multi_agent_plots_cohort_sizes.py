@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -8,6 +9,7 @@ import pytest
 
 matplotlib.use("Agg", force=True)
 
+from fyp_sim.plotting.multi_agent_metrics import cohort_group_label
 from fyp_sim.plotting.multi_agent_plots import plot_phenotype_lockin_outcomes
 
 
@@ -47,3 +49,50 @@ def test_lockin_outcomes_plot_handles_any_cohort_size(tmp_path: Path, phenotypes
     )
 
     assert out_path.exists()
+
+
+def _write_resolved_config(tmp_path: Path, agents: list[dict]) -> Path:
+    (tmp_path / "config_resolved.json").write_text(json.dumps({"agents": agents}))
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("agents", "expected"),
+    [
+        # E2-style cohort: the arms really are phenotypes.
+        (
+            [
+                {"agent_id": "watcher", "phenotype": "watcher", "sentiment_threshold": -0.2},
+                {"agent_id": "sampler", "phenotype": "sampler", "sentiment_threshold": -0.2},
+                {"agent_id": "avoider", "phenotype": "avoider", "sentiment_threshold": -0.2},
+            ],
+            "Phenotype",
+        ),
+        # E6-style cohort: one phenotype, arms differ only by sentiment threshold.
+        (
+            [
+                {"agent_id": "strict", "phenotype": "watcher", "sentiment_threshold": 0.5},
+                {"agent_id": "baseline", "phenotype": "watcher", "sentiment_threshold": -0.2},
+                {"agent_id": "lenient", "phenotype": "watcher", "sentiment_threshold": -1.0},
+            ],
+            "Sentiment-threshold arm",
+        ),
+        # Same phenotype and threshold everywhere: fall back to a neutral noun.
+        (
+            [
+                {"agent_id": "a", "phenotype": "watcher", "sentiment_threshold": -0.2},
+                {"agent_id": "b", "phenotype": "watcher", "sentiment_threshold": -0.2},
+            ],
+            "Cohort arm",
+        ),
+    ],
+)
+def test_cohort_group_label_names_what_actually_varies(
+    tmp_path: Path, agents: list[dict], expected: str
+):
+    run_dir = _write_resolved_config(tmp_path, agents)
+    assert cohort_group_label(run_dir) == expected
+
+
+def test_cohort_group_label_defaults_to_phenotype_without_config(tmp_path: Path):
+    assert cohort_group_label(tmp_path) == "Phenotype"

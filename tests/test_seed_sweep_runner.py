@@ -39,6 +39,8 @@ def test_run_seed_sweep_writes_logs_and_summary(tmp_path: Path) -> None:
         "vii_t",
         "vii_cum",
     ]
+    # Heuristic runs keep the old schema: no LLM metadata columns.
+    assert "policy_mode" not in header
 
 
 def test_run_seed_sweep_multi_agent_adds_agent_id_column(tmp_path: Path) -> None:
@@ -84,3 +86,49 @@ def test_run_seed_sweep_multi_agent_adds_agent_id_column(tmp_path: Path) -> None
     # Ensure at least two different agent_id values appear in the body
     agent_ids = {ln.split(",")[0] for ln in lines[1:] if ln.strip()}
     assert {"watcher", "sampler"}.issubset(agent_ids)
+
+
+def test_run_seed_sweep_llm_mode_writes_llm_metadata(tmp_path: Path, monkeypatch) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    cfg_path = repo_root / "configs" / "experiment_baseline.json"
+
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["scenario"] = "experiment_baseline"
+    cfg["steps"] = 4
+    cfg["seeds"] = [3]
+    cfg["policy"] = {"mode": "llm", "llm": {"model": "fake", "rerank_slate": True}}
+
+    # Offline stand-in for the real LLM client
+    class FakeClient:
+        def complete(self, prompt: str, *, timeout_s: float) -> str:  # noqa: ARG002
+            return '{"action": "Sample", "confidence": 0.5}'
+
+    import fyp_sim.runners.seed_sweep as seed_sweep_module
+    from fyp_sim.agents.deciders import LLMDecider
+
+    monkeypatch.setattr(
+        seed_sweep_module,
+        "build_decider",
+        lambda cfg: LLMDecider(prompt_id="decision_v1", client=FakeClient(), timeout_s=1.0),
+    )
+
+    run_dir = run_seed_sweep(cfg, cfg_path=cfg_path, outputs_root=tmp_path)
+
+    log_path = run_dir / "seeds" / "s00003" / "run_log.csv"
+    with log_path.open("r", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    assert rows
+    for row in rows:
+        assert row["policy_mode"] == "llm"
+        assert row["llm_prompt_id"] == "decision_v1"
+        assert row["llm_valid"] == "True"
+        assert row["llm_fallback_reason"] == ""
+        assert row["llm_action"] == "Sample"
+        assert row["llm_confidence"] == "0.5"
+
+    diagnostics = json.loads((run_dir / "llm_diagnostics.json").read_text(encoding="utf-8"))
+    assert diagnostics["llm_expected_call_count"] == 20
+    assert diagnostics["llm_call_count"] == 20
+    assert diagnostics["llm_valid_count"] == 20
+    assert diagnostics["llm_fallback_count"] == 0
