@@ -7,7 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Non-root user for runtime security
 RUN groupadd --gid 1001 appuser \
-    && useradd --uid 1001 --gid 1001 --no-create-home --no-log-init --shell /bin/false appuser
+    && useradd --uid 1001 --gid 1001 --create-home --home-dir /home/appuser \
+        --no-log-init --shell /bin/false appuser
 
 # Streamlit 1.10.0+ requires a non-root WORKDIR
 # This also matches REPO_ROOT derivation in ui/app_state.py (__file__-anchored to /app)
@@ -27,8 +28,10 @@ COPY configs/ ./configs/
 
 # Pre-create outputs dir owned by appuser so the named volume initialises with correct
 # ownership on first mount (Docker copies this directory's contents into a new volume)
-RUN mkdir -p outputs/runs \
-    && chown -R appuser:appuser outputs/
+RUN mkdir -p outputs/runs /home/appuser/.streamlit /home/appuser/.config/matplotlib \
+    && chown -R appuser:appuser outputs/ /home/appuser/
+
+ENV HOME=/home/appuser
 
 USER appuser
 
