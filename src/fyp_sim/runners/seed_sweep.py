@@ -114,7 +114,9 @@ def run_seed_sweep(
     cfg = dict(cfg)
 
     if force_heuristic:
-        cfg["policy"] = {"mode": "heuristic"}
+        policy = dict(cfg.get("policy") or {})
+        policy["mode"] = "heuristic"
+        cfg["policy"] = policy
 
     _fail_fast_old_alpha(cfg, cfg_path)
     config_audit = validate_experiment_config(cfg, runner="batch", cfg_path=cfg_path)
